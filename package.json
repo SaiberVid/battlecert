@@ -1,9 +1,37 @@
 {
-  "name": "cert-arena",
+  "name": "battlecert",
   "private": true,
-  "description": "Entrena cualquier certificación jugando con amigos (P2P, sin servidor).",
+  "version": "0.2.0",
+  "type": "module",
   "scripts": {
-    "build": "node tools/build.mjs && cp dist/index.html index.html",
-    "test": "node tools/test.cjs"
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:e2e": "playwright test",
+    "lint": "oxlint src"
+  },
+  "dependencies": {
+    "@fontsource/atkinson-hyperlegible": "^5.3.0",
+    "@fontsource/bricolage-grotesque": "^5.3.0",
+    "@fontsource/jetbrains-mono": "^5.3.0",
+    "motion": "^14.6.0",
+    "peerjs": "^1.5.4",
+    "qrcode-generator": "^1.4.4",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "zod": "^4.6.7",
+    "zustand": "^5.0.16"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.64.1",
+    "@types/node": "^24.19.2",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.2",
+    "oxlint": "^1.88.0",
+    "typescript": "~6.0.3",
+    "vite": "^8.3.4",
+    "vitest": "^5.0.5"
   }
 }

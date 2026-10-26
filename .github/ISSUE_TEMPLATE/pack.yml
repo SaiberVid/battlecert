@@ -1,0 +1,19 @@
+name: Nuevo pack
+description: Propón un pack de preguntas para la galería
+labels: [pack]
+body:
+  - type: input
+    id: subject
+    attributes: { label: Certificación o asignatura }
+    validations: { required: true }
+  - type: input
+    id: license
+    attributes: { label: Licencia del contenido, placeholder: "CC BY 4.0" }
+    validations: { required: true }
+  - type: checkboxes
+    id: rules
+    attributes:
+      label: Confirmo
+      options:
+        - label: Las preguntas son originales; no son preguntas reales de examen.
+          required: true

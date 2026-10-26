@@ -1,8 +1,8 @@
 # Plan del proyecto
 
-Estudio para convertir el prototipo (hoy "Cert Arena") en un proyecto open source mantenible: un juego de preguntas tipo test, gratuito y sin cuentas, para practicar **cualquier asignatura o certificación** con amigos, usando bancos de preguntas en JSON que cualquiera puede generar con una IA a partir de sus apuntes, un PDF o una guía oficial.
+Estudio para convertir el prototipo "Cert Arena" en **BattleCert**, en un proyecto open source mantenible: un juego de preguntas tipo test, gratuito y sin cuentas, para practicar **cualquier asignatura o certificación** con amigos, usando bancos de preguntas en JSON que cualquiera puede generar con una IA a partir de sus apuntes, un PDF o una guía oficial.
 
-Fecha: 26-oct-2026 · Estado del prototipo: v0.1 (un único HTML, PeerJS, 3 packs de Claude).
+Fecha: 26-oct-2026 · Estado: **v0.2 — fases 0 y 1 hechas** (React + TS, seguridad endurecida, modos y sonido). Ver §9.
 
 ---
 
@@ -27,15 +27,9 @@ Fecha: 26-oct-2026 · Estado del prototipo: v0.1 (un único HTML, PeerJS, 3 pack
 
 Tampoco conviene "claude-cert-duel" para un proyecto genérico: "Claude" es marca de Anthropic, y el proyecto ya no va solo de Claude. Los packs de Claude quedan como pack de ejemplo, con aviso de "no afiliado a Anthropic".
 
-Candidatos (no he encontrado apps con estos nombres exactos; verificar en GitHub, stores y dominios antes de decidir):
+Candidatos estudiados: Duelab, Repásalo, ExamParty, Certmaxer Duel y **BattleCert**.
 
-| Nombre | Idea | Notas |
-|---|---|---|
-| **Duelab** | duelo + lab | Corto, internacional, sirve en ES/EN |
-| **Repásalo** | "repásalo" | Muy claro en español; peor fuera |
-| **ExamParty** | estudiar en grupo como fiesta | Claro en inglés |
-
-Recomendación: **Duelab**. Al renombrar: nuevo repo `saibervid/duelab` (o renombrar este; GitHub redirige el repo, pero la URL de Pages cambia).
+**Decisión: BattleCert** (repo `saibervid/battlecert`, web `https://saibervid.github.io/battlecert/`). Corto, se entiende en inglés y en español, dice exactamente lo que es (batalla + certificación) y no aparece en uso para una app de estudio. GitHub redirige el nombre antiguo del repo, pero la URL de Pages cambia.
 
 ---
 
@@ -170,12 +164,12 @@ Sí, con matices. El prototipo es JavaScript sin framework en un solo HTML. Func
 
 **Stack propuesto:**
 - **Vite + React 19 + TypeScript estricto.**
-- **Tailwind CSS v4** con los tokens de diseño actuales; **Motion** para animaciones.
+- **CSS propio con variables (tokens)** en un solo archivo, con tema claro/oscuro; **Motion** para animaciones. *Decisión en fase 0: se descarta Tailwind; los tokens ya existían, el CSS ocupa 5 KB gzip y no añade otra herramienta que aprender a quien contribuya.*
 - **Zustand** para estado; **Zod** para validar packs y todos los mensajes de red.
 - Web Audio propio para sonidos (sin dependencias).
-- **vite-plugin-pwa** (instalable y offline).
+- **vite-plugin-pwa** (instalable y offline) — fase 5.
 - **Vitest** (lógica) + **Playwright** (partidas multijugador con red simulada, como ya hacemos) en CI.
-- Despliegue con **GitHub Actions → Pages**: compila, prueba y publica en cada push a `main`.
+- Despliegue con **GitHub Actions**: compila, prueba y publica la web en la rama `gh-pages` en cada push a `main`.
 - **Todas las librerías empaquetadas**, nada cargado de CDN en tiempo de ejecución (seguridad y privacidad, ver SECURITY.md). Fuentes autoalojadas.
 
 **Estructura:**
@@ -221,3 +215,22 @@ El motor de juego actual (`engine.js`) y los importadores ya son lógica pura y 
 | **5 · Comunidad** | i18n EN, PWA, duelo asíncrono, equipos, cooperativo | Proyecto público maduro |
 
 Orden recomendado: 0 → 1 → 2 entregan el 80 % del valor. La fase 4 solo es necesaria si aparecen problemas de conexión reales o se quiere usar en clase.
+
+
+---
+
+## 9. Estado (v0.2, 26-oct-2026)
+
+**Fase 0 — hecha**
+- Vite + React 19 + TypeScript estricto; Zustand, Zod, Motion; fuentes autoalojadas; PeerJS empaquetado y cargado bajo demanda. Ningún recurso de CDN en tiempo de ejecución.
+- Seguridad: los 15 puntos de la auditoría cerrados o documentados (ver [SECURITY.md](../SECURITY.md)).
+- 38 tests unitarios (motor, modos, puntuación, que no se filtran respuestas, importadores, saneado, protocolo, limitador) y 7 tests end-to-end con red simulada (partida de 3, PIN, expulsión, reconexión, apuesta, invitado malicioso, importación y modo solo).
+- CI en cada PR y despliegue automático a `gh-pages`. LICENSE MIT, CONTRIBUTING, código de conducta, plantillas, Dependabot.
+
+**Fase 1 — hecha**
+- Modos: Clásico, Turnos + robo, Relámpago, Supervivencia (3 vidas) y Apuesta (×1–×3).
+- Tiempo por pregunta de 5 a 120 s con atajos (Rayo 5 s … Lento 90 s).
+- Sonidos sintetizados (sin archivos) que suben de tono con la racha, vibración en móvil, cuenta atrás 3-2-1, formas ▲◆●■ en las opciones, marcador animado, reacciones con emoji, confeti y podio, revancha con serie.
+- Respeta `prefers-reduced-motion`; botón de silencio; tema claro/oscuro/automático; atajos de teclado 1–8.
+
+**Pendiente de fase 1:** modo Contrarreloj (60 s para responder todas las que puedas). Pasa a la fase 2.

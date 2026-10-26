@@ -1,0 +1,17 @@
+name: Error
+description: Algo no funciona como debería
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes: { label: Qué pasa, description: Qué hiciste, qué esperabas y qué ocurrió. }
+    validations: { required: true }
+  - type: input
+    id: device
+    attributes: { label: Dispositivo y navegador, placeholder: "Android 15, Chrome 141" }
+  - type: dropdown
+    id: role
+    attributes: { label: Papel en la partida, options: [Anfitrión, Invitado, Solo, No aplica] }
+  - type: textarea
+    id: extra
+    attributes: { label: Capturas o consola, description: "No pegues datos personales." }

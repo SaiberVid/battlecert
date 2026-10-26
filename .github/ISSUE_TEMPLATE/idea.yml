@@ -1,0 +1,11 @@
+name: Idea
+description: Propón una mejora o un modo de juego
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes: { label: Qué problema resuelve }
+    validations: { required: true }
+  - type: textarea
+    id: proposal
+    attributes: { label: Cómo lo harías }

@@ -47,6 +47,11 @@ Solo el anfitrión necesita tener el pack: las preguntas viajan a los demás dur
 - Conexión directa entre navegadores (WebRTC) con [PeerJS](https://peerjs.com/), que usa su servidor público gratuito solo para emparejar.
 - Resultados y packs propios en el almacenamiento del navegador de cada dispositivo.
 
+## Hoja de ruta y seguridad
+
+- [Plan del proyecto](docs/PLAN.md): mejoras, modos de juego, packs con IA, escalado y arquitectura.
+- [Seguridad](SECURITY.md): cómo reportar, modelo de amenazas y auditoría.
+
 ## Desarrollo
 
 ```bash

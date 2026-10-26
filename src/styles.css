@@ -240,3 +240,7 @@ label.field { display: flex; flex-direction: column; gap: 6px; }
 pre.prompt { max-height: 260px; overflow: auto; font: 12.5px/1.5 var(--mono); background: var(--sunk); border-radius: 10px; padding: 12px; white-space: pre-wrap; margin: 0; }
 
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition-duration: .01ms !important; animation-duration: .01ms !important; } }
+
+.stages { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; text-align: left; font-size: 14.5px; color: var(--mute); }
+.stages li.done { color: var(--ok); }
+.stages li.now { color: var(--ink); font-weight: 700; }

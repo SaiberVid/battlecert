@@ -45,7 +45,12 @@
       let found = false
       const f = (m) => { if (m.k === 'here' && m.nonce === nonce) found = true }
       listeners.add(f); bus.postMessage({ k: 'who', id, nonce })
-      setTimeout(() => { listeners.delete(f); if (!found) this.emit('error', { type: 'peer-unavailable' }); else bus.postMessage({ k: 'connect', to: id, from: this.id, cid }) }, 150)
+      setTimeout(() => {
+        listeners.delete(f)
+        if (!found) this.emit('error', { type: 'peer-unavailable' })
+        else if (window.__FakePeerIceFail) setTimeout(() => c.emit('iceStateChanged', 'failed'), 300) // simulates a strict NAT
+        else bus.postMessage({ k: 'connect', to: id, from: this.id, cid })
+      }, 150)
       return c
     }
     reconnect() {}

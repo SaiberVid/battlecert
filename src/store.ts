@@ -3,6 +3,7 @@ import { z } from 'zod'
 import type { MatchSettings, Pack, PublicState } from './core/types'
 import { PackSchema } from './core/packs'
 import { AVATARS } from './core/sanitize'
+import type { HostStatus, Stage } from './net/transport'
 import ccdv from './data/claude-ccdv-f.json'
 import ccarf from './data/claude-ccar-f.json'
 import ccarp from './data/claude-ccar-p.json'
@@ -42,7 +43,13 @@ interface State {
   role: Role
   code: string | null
   pin: string | null
+  /** Room secret for the encrypted fallback relay; only travels in the invite link/QR. */
+  secret: string | null
   usePin: boolean
+  stage: Stage | null
+  joinError: string | null
+  net: HostStatus | null
+  via: 'direct' | 'relay' | null
   P: PublicState | null
   myPid: string | null
   local: Local
@@ -66,7 +73,7 @@ export const useStore = create<State>((set) => ({
   packs: [...BUILTIN, ...custom.map((p) => ({ ...p, builtIn: false }))],
   settings: savedSettings,
   history: storage.get('history', z.array(ResultSchema), []),
-  role: null, code: null, pin: null, usePin: storage.get('usePin', z.boolean(), false), P: null, myPid: null, local: blankLocal(), msg: null, reactions: [], myLog: {},
+  role: null, code: null, pin: null, secret: null, stage: null, joinError: null, net: null, via: null, usePin: storage.get('usePin', z.boolean(), false), P: null, myPid: null, local: blankLocal(), msg: null, reactions: [], myLog: {},
   set: (p) => set(p),
   say: (text, tone = 'warn') => set({ msg: { text, tone } }),
 }))

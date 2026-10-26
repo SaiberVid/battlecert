@@ -28,10 +28,15 @@ async function joinByCode(p: Page, nick: string, code: string) {
   await p.locator('#code').fill(code)
   await p.getByRole('button', { name: 'Entrar' }).click()
 }
+/** Answers on every page; multiple-response questions ("Elige 2") get as many picks as needed. */
 async function answerAll(pages: Page[], pick = 0) {
   for (const p of pages) {
-    const btn = p.locator('.opt:not([disabled])').nth(pick)
-    if (await btn.count()) await btn.click().catch(() => {})
+    const needText = (await p.locator('.need').count()) ? await p.locator('.need').textContent() : ''
+    const need = Number(/\d+/.exec(needText || '')?.[0] || 1)
+    for (let k = 0; k < need; k++) {
+      const btn = p.locator('.opt:not([disabled])').nth((pick + k) % 4)
+      if (await btn.count()) await btn.click().catch(() => {})
+    }
   }
 }
 
@@ -183,4 +188,51 @@ test('solo practice and pack import', async ({ context }) => {
     await p.getByRole('button', { name: 'Siguiente →' }).click()
   }
   await expect(p.getByRole('heading', { name: 'Clasificación' })).toBeVisible()
+})
+
+test.describe('encrypted relay fallback', () => {
+  let broker: { close(): Promise<void> }
+  test.beforeAll(async () => { const { startBroker } = await import('./mqtt-broker'); broker = startBroker(4181) })
+  test.afterAll(async () => { await broker.close() })
+
+  test('a guest whose network blocks the direct connection plays through the relay', async ({ context }) => {
+    await context.addInitScript(() => { Object.assign(window, { __RelayOn: true, __RelayBrokers: ['ws://127.0.0.1:4181'] }) })
+    const h = await open(context)
+    const code = await host(h, 'Host', { n: '5' })
+    await expect(h.locator('.dot.on')).toHaveCount(2, { timeout: 10_000 }) // direct + relay ready
+    const link = await h.locator('a', { hasText: 'WhatsApp' }).getAttribute('href')
+    const url = decodeURIComponent(link!.split('text=')[1]).split('aquí: ')[1]
+    expect(url).toContain('&k=')
+    const g = await context.newPage()
+    await g.addInitScript(() => { Object.assign(window, { __FakePeerIceFail: true }) })
+    await g.goto(url.replace(/^https?:\/\/[^/]+/, ''))
+    await profile(g, 'Movil')
+    await g.getByRole('button', { name: 'Entrar' }).click()
+    await expect(g.getByText('Conectado por la vía alternativa cifrada')).toBeVisible({ timeout: 20_000 })
+    await expect(h.locator('.pl')).toHaveCount(2)
+    await h.getByRole('button', { name: /Empezar con 2/ }).click()
+    await expect(g.locator('.opt').first()).toBeEnabled({ timeout: 10_000 })
+    await answerAll([h, g])
+    await expect(g.locator('.result')).toBeVisible()
+    await expect(g.locator('.opt.right').first()).toBeVisible()
+    void code
+  })
+
+  test('with only the code and a blocked network, the guest gets a clear, lasting explanation', async ({ context }) => {
+    await context.addInitScript(() => { Object.assign(window, { __RelayOn: true, __RelayBrokers: ['ws://127.0.0.1:4181'], __FakePeerIceFail: true }) })
+    const h = await open(context)
+    const code = await host(h, 'Host')
+    const g = await open(context)
+    await joinByCode(g, 'Movil', code)
+    const alert = g.getByRole('alert').filter({ hasText: 'No se pudo entrar' })
+    await expect(alert).toContainText('enlace o el QR', { timeout: 30_000 })
+    await g.waitForTimeout(8000)
+    await expect(alert).toBeVisible() // does not vanish like a toast
+  })
+
+  test('a room code nobody is hosting says so', async ({ context }) => {
+    const g = await open(context)
+    await joinByCode(g, 'Solo', 'zzzzzz')
+    await expect(g.getByRole('alert').filter({ hasText: 'No se pudo entrar' })).toContainText('No hay ninguna sala abierta', { timeout: 30_000 })
+  })
 })

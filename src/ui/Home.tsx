@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { motion } from 'motion/react'
 import { AVATARS, cleanNick } from '../core/sanitize'
 import { isCode } from '../net/protocol'
+import { isSecret } from '../net/relay'
 import { MODES } from '../core/engine'
 import { createRoom, join } from '../session'
 import { storage, useStore } from '../store'
@@ -9,12 +10,13 @@ import { unlockAudio, sfx } from '../sound'
 import { Settings } from './Settings'
 import { fmtMs } from './common'
 
-function readHash(): { code: string; pin: string | null } | null {
+function readHash(): { code: string; pin: string | null; secret: string | null; forceRelay: boolean } | null {
   const h = new URLSearchParams(location.hash.slice(1))
   const code = (h.get('j') || '').toLowerCase()
   if (!isCode(code)) return null
   const pin = h.get('p')
-  return { code, pin: pin && /^\d{4}$/.test(pin) ? pin : null }
+  const k = h.get('k')
+  return { code, pin: pin && /^\d{4}$/.test(pin) ? pin : null, secret: k && isSecret(k) ? k : null, forceRelay: h.get('r') === '1' }
 }
 
 export function Profile() {
@@ -44,6 +46,7 @@ export function Home() {
   const usePin = useStore((s) => s.usePin)
   const set = useStore((s) => s.set)
   const history = useStore((s) => s.history)
+  const joinError = useStore((s) => s.joinError)
 
   useEffect(() => {
     const on = () => { const i = readHash(); setInvite(i); if (i) setCode(i.code) }
@@ -56,7 +59,7 @@ export function Home() {
     const c = code.trim().toLowerCase()
     if (!isCode(c)) return useStore.getState().say('El código tiene 6 caracteres (letras y números).')
     setBusy(true)
-    await join(c, invite?.code === c ? invite.pin : null)
+    await join(c, invite?.code === c ? invite.pin : null, invite?.code === c ? invite.secret : null, invite?.code === c && invite.forceRelay)
     setBusy(false)
   }
   const doCreate = async (solo: boolean) => { unlockAudio(); setBusy(true); await createRoom(solo); setBusy(false) }
@@ -72,6 +75,7 @@ export function Home() {
         <section className="panel hero" aria-labelledby="inv-h">
           <h2 id="inv-h">Te han invitado a la sala <span className="mono">{invite.code}</span></h2>
           <p className="muted">Escribe tu alias, elige avatar y entra.</p>
+          {joinError && <JoinError text={joinError} />}
         </section>
       )}
 
@@ -85,6 +89,7 @@ export function Home() {
               <input id="code" className="codein grow" type="text" inputMode="text" autoCapitalize="none" autoComplete="off" spellCheck={false} maxLength={6} placeholder="código" value={code} onChange={(e) => setCode(e.target.value.toLowerCase().replace(/[^a-z0-9]/g, ''))} />
               <button className={'btn big ' + (invite ? 'accent' : 'primary')} disabled={busy || code.length !== 6}>Entrar</button>
             </form>
+            {joinError && !invite && <JoinError text={joinError} />}
             <p className="small muted">¿Tienes un QR? Escanéalo con la cámara y se abrirá aquí con el código puesto.</p>
           </section>
         </div>
@@ -102,6 +107,16 @@ export function Home() {
 
       {history.length > 0 && <History />}
     </>
+  )
+}
+
+function JoinError({ text }: { text: string }) {
+  const set = useStore((s) => s.set)
+  return (
+    <div className="warn row between" role="alert" style={{ alignItems: 'flex-start', flexWrap: 'nowrap' }}>
+      <span><b>No se pudo entrar.</b> {text}</span>
+      <button className="btn sm ghost" onClick={() => set({ joinError: null })} aria-label="Cerrar aviso">✕</button>
+    </div>
   )
 }
 

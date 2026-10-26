@@ -38,6 +38,16 @@ Fuera del alcance: un anfitrión que hace trampas con su propio pack (ve las res
 | 14 | Enlaces externos | — | **Correcto.** `rel="noopener noreferrer"`, `referrer: no-referrer` |
 | 15 | Sin LICENSE | Legal | **Cerrado.** MIT |
 
+### Conexión alternativa cifrada (v0.2.1)
+
+Cuando la conexión directa WebRTC no se puede abrir (datos móviles, NAT estricto) y no hay TURN gratuito fiable (el de PeerJS no responde), los mensajes pasan por un broker MQTT público (EMQX o HiveMQ) por WebSocket seguro:
+
+- Cada sala genera un secreto aleatorio de 128 bits que solo viaja en el fragmento `#…&k=…` del enlace y del QR. Los navegadores nunca envían el fragmento a ningún servidor.
+- Del secreto salen el tema MQTT (hash SHA-256, no reversible) y la clave AES-GCM-256. El broker solo ve temas aleatorios y bytes cifrados; un mensaje alterado o con otra clave se descarta.
+- Quien entra solo con el código (sin el enlace) no puede usar esta vía.
+- Riesgo aceptado: alguien que capture tráfico cifrado podría reenviarlo tal cual (replay). El anfitrión ignora respuestas fuera de la pregunta y fase actuales, así que el efecto se limita a duplicar mensajes inocuos.
+- Los brokers públicos no tienen garantía de servicio; si fallan, la app lo dice y la conexión directa sigue funcionando donde sea posible.
+
 Otros cambios: la descarga de packs por URL usa `credentials: 'omit'` y solo `https`; el almacenamiento local se valida con Zod al leerlo; los mensajes del anfitrión también se validan en el invitado (un anfitrión malicioso no puede inyectar nada fuera del esquema).
 
 ## Reglas para contribuir

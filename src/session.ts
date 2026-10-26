@@ -6,6 +6,7 @@ import type { Pack, PublicState } from './core/types'
 import { AVATARS, cleanNick, dict } from './core/sanitize'
 import { GuestMsg, HostMsg, MAX_MSG_BYTES, MAX_STATE_BYTES, RateLimiter, randomCode, randomPin, sizeOf } from './net/protocol'
 import { hostRoom, joinRoom, type GuestHandle, type HostHandle } from './net/transport'
+import { newSecret } from './net/relay'
 import { S, blankLocal, storage, useStore, type Result } from './store'
 import { z } from 'zod'
 
@@ -36,8 +37,9 @@ export function deviceToken(): string {
 const packOf = (id: string): Pack | undefined => S().packs.find((p) => p.id === id)
 const hostPack = () => packOf(M!.s.packId)!
 
-export function joinUrl(code: string, pin: string | null): string {
-  return location.origin + location.pathname + '#j=' + code + (pin ? '&p=' + pin : '')
+const hashFor = (code: string, pin: string | null, secret: string | null) => '#j=' + code + (pin ? '&p=' + pin : '') + (secret ? '&k=' + secret : '')
+export function joinUrl(code: string, pin: string | null, secret: string | null): string {
+  return location.origin + location.pathname + hashFor(code, pin, secret)
 }
 
 // ---------- host
@@ -51,14 +53,15 @@ export async function createRoom(solo: boolean) {
   reset()
   const code = solo ? 'solo' : randomCode()
   const pin = !solo && s.usePin ? randomPin() : null
+  const secret = solo ? null : newSecret()
   M = E.newMatch(code, { ...s.settings, packName: pack.name })
   const me = E.addPlayer(M, nick, s.avatar, HOST_LABEL, null)!
   labelToPid[HOST_LABEL] = me.pid
-  useStore.setState({ role: solo ? 'solo' : 'host', code, pin, myPid: me.pid, view: 'room', msg: null, myLog: {}, P: null })
+  useStore.setState({ role: solo ? 'solo' : 'host', code, pin, secret, net: null, joinError: null, myPid: me.pid, view: 'room', msg: null, myLog: {}, P: null })
   if (solo) return startMatch()
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
-      hostNet = await hostRoom(M.code, { message: onGuestMessage, left: onGuestLeft, joined: () => publish() })
+      hostNet = await hostRoom(M.code, secret, { message: onGuestMessage, left: onGuestLeft, joined: () => publish(), status: (net) => useStore.setState({ net }) })
       break
     } catch (e) {
       const err = e as { code: string; message: string }
@@ -68,6 +71,7 @@ export async function createRoom(solo: boolean) {
     }
   }
   if (!hostNet) { leave(); return S().say('No se pudo abrir la sala.') }
+  useStore.setState({ net: hostNet.status() })
   publish()
 }
 
@@ -194,21 +198,24 @@ setInterval(() => { if (hostNet) hostNet.broadcast({ t: 'ping', ts: Date.now() }
 
 // ---------- guest
 let reconnecting = false
-export async function join(code: string, pin: string | null) {
+export async function join(code: string, pin: string | null, secret: string | null = null, forceRelay = false) {
   const s = S()
   const nick = cleanNick(s.nick)
   if (!nick) return s.say('Escribe un alias de al menos 2 caracteres.')
   storage.set('nick', nick); storage.set('avatar', s.avatar)
   reset()
-  useStore.setState({ role: 'guest', code, pin, view: 'room', P: null, myPid: null, msg: null, myLog: {} })
+  useStore.setState({ role: 'guest', code, pin, secret, view: 'room', P: null, myPid: null, msg: null, joinError: null, stage: null, via: null, myLog: {} })
   try {
-    guestNet = await joinRoom(code, { message: onHostMessage, closed: onClosed })
+    guestNet = await joinRoom(code, secret, { message: onHostMessage, closed: onClosed }, { stage: (stage) => useStore.setState({ stage }), forceRelay })
   } catch (e) {
-    useStore.setState({ role: null, view: 'home', code: null })
-    return S().say((e as { message: string }).message)
+    if (S().role !== 'guest' || S().code !== code) return // cancelled meanwhile
+    useStore.setState({ role: null, view: 'home', code: null, stage: null, joinError: (e as { message: string }).message })
+    return
   }
+  if (S().role !== 'guest' || S().code !== code) { guestNet.close(); guestNet = null; return }
+  useStore.setState({ via: guestNet.via })
   guestNet.send({ t: 'hello', nick, avatar: s.avatar, token: deviceToken(), pin: pin ?? undefined })
-  history.replaceState(null, '', location.pathname + '#j=' + code + (pin ? '&p=' + pin : ''))
+  history.replaceState(null, '', location.pathname + hashFor(code, pin, secret))
 }
 
 function onHostMessage(data: unknown) {
@@ -226,14 +233,15 @@ function onHostMessage(data: unknown) {
 function onClosed() {
   if (S().role !== 'guest' || reconnecting) return
   reconnecting = true
-  const { code, pin } = S()
+  const { code, pin, secret } = S()
   S().say('Conexión perdida. Reintentando…')
   let tries = 0
   const retry = async () => {
     if (S().role !== 'guest' || S().code !== code || !code) { reconnecting = false; return }
     tries++
     try {
-      guestNet = await joinRoom(code, { message: onHostMessage, closed: () => { reconnecting = false; onClosed() } })
+      guestNet = await joinRoom(code, secret, { message: onHostMessage, closed: () => { reconnecting = false; onClosed() } })
+      useStore.setState({ via: guestNet.via })
       guestNet.send({ t: 'hello', nick: cleanNick(S().nick), avatar: S().avatar, token: deviceToken(), pin: pin ?? undefined })
       reconnecting = false
       S().say('Reconectado.', 'ok')
@@ -340,7 +348,7 @@ export function leave() {
   try { guestNet?.close() } catch { /* ignore */ }
   hostNet = null; guestNet = null; reconnecting = false
   reset()
-  useStore.setState({ role: null, code: null, pin: null, P: null, myPid: null, view: 'home', local: blankLocal(), reactions: [] })
+  useStore.setState({ role: null, code: null, pin: null, secret: null, net: null, via: null, stage: null, P: null, myPid: null, view: 'home', local: blankLocal(), reactions: [] })
   if (location.hash) history.replaceState(null, '', location.pathname)
 }
 

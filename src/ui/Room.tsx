@@ -5,6 +5,7 @@ import { REACTIONS } from '../core/sanitize'
 import type { PublicState } from '../core/types'
 import { applySettings, choose, joinUrl, kick, leave, myTurn, react, rematch, setBet, skip, startMatch } from '../session'
 import { useStore, S } from '../store'
+import type { Stage } from '../net/transport'
 import { sfx } from '../sound'
 import { Settings } from './Settings'
 import { Confetti, Count, Qr, Ring, SHAPES, colorOf, copy, fmtMs, useNow } from './common'
@@ -14,19 +15,54 @@ export function Room() {
   const role = useStore((s) => s.role)
   const code = useStore((s) => s.code)
   useSounds(P)
-  if (!P) {
-    return (
-      <section className="panel codebox" aria-live="polite">
-        <h2>{role === 'guest' ? 'Conectando con la sala…' : 'Abriendo la sala…'}</h2>
-        <p className="mono code" style={{ fontSize: '2rem' }}>{code}</p>
-        <p className="muted small">Se crea una conexión directa entre navegadores. Suele tardar 2–5 segundos.</p>
-        <button className="btn" onClick={leave}>Cancelar</button>
-      </section>
-    )
-  }
+  if (!P) return <Connecting role={role} code={code} />
   if (P.phase === 'lobby') return <Lobby P={P} />
   if (P.phase === 'end') return <End P={P} />
   return <Play P={P} />
+}
+
+const STAGES: { key: Stage; text: string }[] = [
+  { key: 'broker', text: 'Buscando la sala' },
+  { key: 'direct', text: 'Abriendo conexión directa' },
+  { key: 'relay', text: 'Probando la conexión alternativa (cifrada)' },
+  { key: 'connected', text: 'Conectado, entrando…' },
+]
+
+function Connecting({ role, code }: { role: string | null; code: string | null }) {
+  const stage = useStore((s) => s.stage)
+  const [t0] = useState(() => Date.now())
+  const now = useNow(500)
+  const secs = Math.floor((now - t0) / 1000)
+  const idx = STAGES.findIndex((x) => x.key === stage)
+  return (
+    <section className="panel codebox" aria-live="polite">
+      <h2>{role === 'guest' ? 'Conectando con la sala…' : 'Abriendo la sala…'}</h2>
+      <p className="mono code" style={{ fontSize: '2rem' }}>{code}</p>
+      {role === 'guest' && (
+        <ol className="stages">
+          {STAGES.map((st, i) => (
+            <li key={st.key} className={i < idx ? 'done' : i === idx ? 'now' : ''}>{i < idx ? '✓' : i === idx ? '…' : '·'} {st.text}</li>
+          ))}
+        </ol>
+      )}
+      <p className="muted small">{secs > 8 ? 'Tu red no deja conectar directamente; probando la vía alternativa. Puede tardar hasta 25 s.' : 'Suele tardar 2–5 segundos.'}</p>
+      <button className="btn" onClick={leave}>Cancelar</button>
+    </section>
+  )
+}
+
+function NetStatus() {
+  const role = useStore((s) => s.role)
+  const net = useStore((s) => s.net)
+  const via = useStore((s) => s.via)
+  if (role === 'guest') return <p className="small muted"><span className="dot on" /> Conectado {via === 'relay' ? 'por la vía alternativa cifrada' : 'directamente'}</p>
+  if (!net) return null
+  return (
+    <p className="small muted row" style={{ gap: 12, justifyContent: 'center' }}>
+      <span><span className={'dot' + (net.direct ? ' on' : '')} /> Directa</span>
+      <span><span className={'dot' + (net.relay ? ' on' : '')} /> Alternativa cifrada</span>
+    </p>
+  )
 }
 
 function useSounds(P: PublicState | null) {
@@ -56,9 +92,10 @@ function useSounds(P: PublicState | null) {
 function Lobby({ P }: { P: PublicState }) {
   const role = useStore((s) => s.role)
   const pin = useStore((s) => s.pin)
+  const secret = useStore((s) => s.secret)
   const myPid = useStore((s) => s.myPid)
   const host = role === 'host'
-  const url = joinUrl(P.code, pin)
+  const url = joinUrl(P.code, pin, secret)
   const share = async () => {
     const data = { title: 'BattleCert', text: `¡Te reto en BattleCert! Sala ${P.code}${pin ? ' (PIN ' + pin + ')' : ''}`, url }
     try { if (navigator.share) { await navigator.share(data); return } } catch { return }
@@ -81,7 +118,9 @@ function Lobby({ P }: { P: PublicState }) {
               <button className="btn" onClick={async () => S().say((await copy(url)) ? 'Enlace copiado.' : 'No se pudo copiar.', 'ok')}>Copiar</button>
             </div>
           )}
-          {host && <p className="small muted">Mantén esta pestaña abierta: la sala vive en tu navegador.</p>}
+          {host && <p className="small"><b>Mantén esta pestaña abierta y en primer plano</b>: la sala vive en tu navegador. En el móvil, si cambias de app la sala se pausa; vuelve aquí antes de que entren.</p>}
+          {host && <p className="small muted">Invita con el enlace o el QR: incluyen la conexión alternativa para redes que no permiten la directa (datos móviles, Wi-Fi de empresa). Con solo el código, esa vía no está disponible.</p>}
+          <NetStatus />
         </section>
 
         <section className="panel" aria-labelledby="pl-h">

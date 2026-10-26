@@ -1,0 +1,9 @@
+{
+  "name": "cert-arena",
+  "private": true,
+  "description": "Entrena cualquier certificación jugando con amigos (P2P, sin servidor).",
+  "scripts": {
+    "build": "node tools/build.mjs && cp dist/index.html index.html",
+    "test": "node tools/test.cjs"
+  }
+}

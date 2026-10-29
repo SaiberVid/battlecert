@@ -1,6 +1,6 @@
 // Game engine: a pure state machine run by the host. Guests only render the PublicState the
 // host broadcasts, so they never hold the pack or the answers before a reveal.
-import type { Answer, MatchSettings, Mode, Pack, Phase, Player, PublicState, Question, Score } from './types'
+import type { Answer, DiffMode, MatchSettings, Mode, Pack, Phase, Player, PublicState, Question, Score } from './types'
 import { dict } from './sanitize'
 
 export const STEAL_MS = 10_000
@@ -56,19 +56,30 @@ export const sameSet = (a: number[], b: number[]) => a.length === b.length && b.
 const blank = (): Score => ({ pts: 0, ok: 0, n: 0, ms: 0, streak: 0, best: 0, stl: 0, lives: LIVES, out: false, dom: dict() })
 const qOf = (pack: Pack, id: string) => pack.questions.find((q) => q.id === id) as Question
 
-/** n question ids, round-robin across domains, avoiding ids already used in this series. */
-export function pick(pack: Pack, n: number, seed: number, domains: string[] = [], exclude: string[] = []): string[] {
+const level = (q: Question) => q.difficulty ?? 2
+const DIFF_ONLY: Partial<Record<DiffMode, number>> = { easy: 1, medium: 2, hard: 3 }
+
+/**
+ * n question ids, round-robin across domains, avoiding ids already used in this series.
+ * diff: 'mix' (shuffled), 'ladder' (easy → hard) or only one level (falls back to all if too few).
+ */
+export function pick(pack: Pack, n: number, seed: number, domains: string[] = [], exclude: string[] = [], diff: DiffMode = 'mix'): string[] {
   const rand = rng(seed)
   const used = new Set(exclude)
   const doms = domains.length ? new Set(domains) : null
-  let pool = pack.questions.filter((q) => (!doms || doms.has(q.domain)) && !used.has(q.id))
-  if (pool.length < n) pool = pack.questions.filter((q) => !doms || doms.has(q.domain))
+  const only = DIFF_ONLY[diff]
+  const base = pack.questions.filter((q) => !doms || doms.has(q.domain))
+  const leveled = only ? base.filter((q) => level(q) === only) : base
+  const src = leveled.length >= Math.min(n, 3) ? leveled : base
+  let pool = src.filter((q) => !used.has(q.id))
+  if (pool.length < n) pool = src
   const by = new Map<string, Question[]>()
   for (const q of shuffle(pool, rand)) { const l = by.get(q.domain) || []; l.push(q); by.set(q.domain, l) }
   const keys = shuffle([...by.keys()], rand)
-  const out: string[] = []
-  while (out.length < n && keys.some((k) => by.get(k)!.length)) for (const k of keys) if (out.length < n && by.get(k)!.length) out.push(by.get(k)!.shift()!.id)
-  return out
+  const out: Question[] = []
+  while (out.length < n && keys.some((k) => by.get(k)!.length)) for (const k of keys) if (out.length < n && by.get(k)!.length) out.push(by.get(k)!.shift()!)
+  if (diff === 'ladder') out.sort((a, b) => level(a) - level(b))
+  return out.map((q) => q.id)
 }
 
 /** Points for one answer. */
@@ -111,7 +122,7 @@ const alive = (m: Match) => m.players.filter((p) => p.online && !m.sc[p.pid]?.ou
 
 export function start(m: Match, pack: Pack, seed: number, now: number, exclude: string[] = []): Match {
   const max = m.s.mode === 'survival' ? Math.max(m.s.n, 50) : m.s.n
-  m.qids = pick(pack, max, seed, m.s.domains, exclude)
+  m.qids = pick(pack, max, seed, m.s.domains, exclude, m.s.diff ?? 'mix')
   const rand = rng(seed ^ 0x9e3779b9)
   m.order = dict()
   for (const id of m.qids) m.order[id] = shuffle(qOf(pack, id).options.map((_, k) => k), rand)
@@ -242,7 +253,7 @@ export function publicState(m: Match, pack: Pack, now: number): PublicState {
   }
   if (m.i >= 0 && m.i < m.qids.length && m.phase !== 'end') {
     const q = qOf(pack, m.qids[m.i])
-    out.q = { id: q.id, domain: q.domain, stem: q.stem, context: q.context, options: (m.order[q.id] || q.options.map((_, k) => k)).map((k) => ({ k, t: q.options[k] })), need: q.answer.length }
+    out.q = { id: q.id, domain: q.domain, stem: q.stem, context: q.context, options: (m.order[q.id] || q.options.map((_, k) => k)).map((k) => ({ k, t: q.options[k] })), need: q.answer.length, difficulty: q.difficulty }
     if (reveal) { out.q.answer = q.answer; out.q.explanation = q.explanation }
   }
   if (m.phase === 'end') out.review = m.qids.slice(0, Math.max(0, m.i)).map((id) => { const x = qOf(pack, id); return { id, domain: x.domain, stem: x.stem, correct: x.answer.map((k) => x.options[k]) } })

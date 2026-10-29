@@ -48,6 +48,12 @@ Cuando la conexión directa WebRTC no se puede abrir (datos móviles, NAT estric
 - Riesgo aceptado: alguien que capture tráfico cifrado podría reenviarlo tal cual (replay). El anfitrión ignora respuestas fuera de la pregunta y fase actuales, así que el efecto se limita a duplicar mensajes inocuos.
 - Los brokers públicos no tienen garantía de servicio; si fallan, la app lo dice y la conexión directa sigue funcionando donde sea posible.
 
+### Generación con IA (v0.3)
+
+- La clave de Gemini la pone cada usuario. Se envía solo a `generativelanguage.googleapis.com`, en la cabecera `x-goog-api-key` (nunca en la URL), con `credentials: 'omit'` y sin referer. Por defecto no se guarda; si el usuario marca "Recordar", va a `localStorage`, protegida por la CSP estricta.
+- El temario y los ejemplos van directos del navegador a Google. Con el plan gratuito, Google puede usar los datos para mejorar sus modelos fuera de la UE, el Reino Unido y el EEE. Se avisa en la documentación.
+- **Inyección de instrucciones:** un PDF puede contener texto dirigido a la IA. El prompt de sistema lo trata como contenido, y lo que vuelve se valida con el mismo esquema que cualquier pack importado y se muestra siempre como texto. En el peor caso se obtienen preguntas malas, nunca código ejecutado.
+
 Otros cambios: la descarga de packs por URL usa `credentials: 'omit'` y solo `https`; el almacenamiento local se valida con Zod al leerlo; los mensajes del anfitrión también se validan en el invitado (un anfitrión malicioso no puede inyectar nada fuera del esquema).
 
 ## Reglas para contribuir

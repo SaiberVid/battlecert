@@ -90,7 +90,7 @@ a { color: var(--accent); }
 .seg button { border: 0; background: transparent; border-radius: 9px; padding: 6px 12px; min-height: 38px; color: var(--mute); font-weight: 700; cursor: pointer; }
 .seg button[aria-pressed='true'] { background: var(--panel); color: var(--ink); box-shadow: var(--shadow); }
 
-input[type=text], input[type=url], input[type=number], select, textarea { border-radius: 12px; border: 1px solid var(--line); background: var(--sunk); padding: 11px 13px; min-width: 0; width: 100%; min-height: 46px; }
+input[type=text], input[type=url], input[type=number], input[type=password], select, textarea { border-radius: 12px; border: 1px solid var(--line); background: var(--sunk); padding: 11px 13px; min-width: 0; width: 100%; min-height: 46px; }
 textarea { font: 13px/1.45 var(--mono); resize: vertical; }
 input::placeholder, textarea::placeholder { color: var(--mute); opacity: .8; }
 .codein { font-family: var(--mono); letter-spacing: .18em; text-transform: lowercase; font-size: 1.25rem; text-align: center; font-weight: 700; }
@@ -244,3 +244,14 @@ pre.prompt { max-height: 260px; overflow: auto; font: 12.5px/1.5 var(--mono); ba
 .stages { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; text-align: left; font-size: 14.5px; color: var(--mute); }
 .stages li.done { color: var(--ok); }
 .stages li.now { color: var(--ink); font-weight: 700; }
+
+.files { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.files li { display: flex; align-items: center; gap: 8px; border: 1px solid var(--line); border-radius: 10px; padding: 4px 4px 4px 10px; font-size: 14px; }
+.files li span:first-child { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sheet { display: grid; gap: 14px; }
+.sheet details { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; background: var(--panel); }
+.sheet summary { cursor: pointer; display: flex; justify-content: space-between; gap: 8px; }
+.weight { color: var(--accent); letter-spacing: 1px; font-size: 12px; white-space: nowrap; }
+.trap { color: var(--warn); margin-top: 6px; }
+.diff { font: 700 11px var(--mono); padding: 2px 8px; border-radius: 999px; border: 1px solid currentColor; }
+.diff.d1 { color: var(--ok); } .diff.d2 { color: var(--warn); } .diff.d3 { color: var(--bad); }

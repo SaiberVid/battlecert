@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react'
-import { LIMITS, TEMPLATE_CSV, TEMPLATE_JSON, aiPrompt, domains, fixPrompt, importText, type ImportResult, type PromptKind } from '../core/packs'
+import { LIMITS, TEMPLATE_CSV, TEMPLATE_JSON, TEMPLATE_MD, difficultyCounts, domains, fixPrompt, importText, type ImportResult } from '../core/packs'
+import { Generate, StudySheet } from './Generate'
 import type { Pack } from '../core/types'
 import { saveCustomPacks, updateSettings, useStore, S } from '../store'
 import { copy } from './common'
@@ -9,7 +10,7 @@ type Tab = 'mine' | 'import' | 'ai' | 'format'
 export function Packs() {
   const [tab, setTab] = useState<Tab>('mine')
   const set = useStore((s) => s.set)
-  const tabs: [Tab, string][] = [['mine', 'Mis packs'], ['import', 'Importar'], ['ai', 'Crear con IA'], ['format', 'Formato']]
+  const tabs: [Tab, string][] = [['mine', 'Mis packs'], ['import', 'Importar'], ['ai', '✨ Crear con IA'], ['format', 'Formato']]
   return (
     <>
       <div className="row between">
@@ -19,9 +20,9 @@ export function Packs() {
       <div className="tabs" role="tablist">
         {tabs.map(([k, l]) => <button key={k} role="tab" aria-selected={tab === k} onClick={() => setTab(k)}>{l}</button>)}
       </div>
-      {tab === 'mine' && <Mine onImport={() => setTab('import')} />}
+      {tab === 'mine' && <Mine onImport={() => setTab('import')} onAi={() => setTab('ai')} />}
       {tab === 'import' && <Import done={() => setTab('mine')} />}
-      {tab === 'ai' && <Ai />}
+      {tab === 'ai' && <Generate toImport={() => setTab('import')} />}
       {tab === 'format' && <Format />}
     </>
   )
@@ -35,9 +36,10 @@ function download(name: string, text: string, type = 'application/json') {
   setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
 
-function Mine({ onImport }: { onImport: () => void }) {
+function Mine({ onImport, onAi }: { onImport: () => void; onAi: () => void }) {
   const packs = useStore((s) => s.packs)
   const [open, setOpen] = useState<string | null>(null)
+  const [sheet, setSheet] = useState<string | null>(null)
   const remove = (p: Pack) => {
     if (!confirmDelete(p)) return
     useStore.setState({ packs: S().packs.filter((x) => x.id !== p.id) })
@@ -54,14 +56,17 @@ function Mine({ onImport }: { onImport: () => void }) {
               <div className="stack" style={{ gap: 2 }}>
                 <h3>{p.builtIn ? '📦 ' : '📝 '}{p.name}</h3>
                 <span className="small muted">{p.questions.length} preguntas · {doms.length} dominios · {p.lang.toUpperCase()} · {p.license}</span>
+                {(() => { const d = difficultyCounts(p); return p.questions.some((q) => q.difficulty) ? <span className="small muted">🟢 {d[0]} · 🟡 {d[1]} · 🔴 {d[2]}{p.concepts ? ` · 🧠 ${p.concepts.length} conceptos` : ''}</span> : null })()}
               </div>
               <div className="row" style={{ gap: 6 }}>
                 <button className="btn sm" onClick={() => { updateSettings({ packId: p.id, packName: p.name, domains: [] }); useStore.setState({ view: 'home' }) }}>Jugar</button>
+                {p.concepts && <button className="btn sm" onClick={() => setSheet(sheet === p.id ? null : p.id)} aria-expanded={sheet === p.id}>Ficha</button>}
                 <button className="btn sm" onClick={() => setOpen(open === p.id ? null : p.id)} aria-expanded={open === p.id}>Detalles</button>
                 <button className="btn sm" onClick={() => download(p.id + '.json', JSON.stringify({ ...p, builtIn: undefined, format: 'battlecert/1' }, null, 1))}>Exportar</button>
                 {!p.builtIn && <button className="btn sm danger" onClick={() => remove(p)}>Borrar</button>}
               </div>
             </div>
+            {sheet === p.id && <StudySheet pack={p} />}
             {open === p.id && (
               <div className="stack small">
                 <p className="muted">Fuente: {p.source}</p>
@@ -71,7 +76,7 @@ function Mine({ onImport }: { onImport: () => void }) {
           </section>
         )
       })}
-      <button className="btn big accent" onClick={onImport}>+ Añadir un pack</button>
+      <div className="row"><button className="btn big accent grow" onClick={onAi}>✨ Crear un pack con IA</button><button className="btn big" onClick={onImport}>Importar</button></div>
     </div>
   )
 }
@@ -183,65 +188,38 @@ function Import({ done }: { done: () => void }) {
   )
 }
 
-function Ai() {
-  const [kind, setKind] = useState<PromptKind>('pdf')
-  const [topic, setTopic] = useState('')
-  const [n, setN] = useState(40)
-  const [lang, setLang] = useState<'es' | 'en'>('es')
-  const prompt = aiPrompt(kind, topic.trim() || 'Mi asignatura', n, lang)
-  const kinds: [PromptKind, string, string][] = [
-    ['pdf', 'Desde un PDF o apuntes', 'Extrae los conceptos 80/20 y crea preguntas sobre ellos.'],
-    ['guide', 'Guía oficial de una cert', 'Reparte preguntas según el peso de cada dominio.'],
-    ['syllabus', 'Temario de asignatura', 'Preguntas por tema.'],
-    ['extend', 'Ampliar un pack', 'Preguntas nuevas sin repetir las tuyas.'],
-  ]
-  return (
-    <div className="grid2">
-      <section className="panel">
-        <h2>Crea un pack con cualquier IA</h2>
-        <ol className="small" style={{ margin: 0, paddingLeft: 20, display: 'grid', gap: 4 }}>
-          <li>Elige qué tienes y copia el prompt.</li>
-          <li>Pégalo en Claude, ChatGPT, Gemini… y adjunta el PDF, la guía o tus apuntes.</li>
-          <li>Copia el JSON que te devuelva y pégalo en <b>Importar</b>. Si tiene errores, BattleCert te da otro prompt para corregirlos.</li>
-        </ol>
-        <div className="modes">
-          {kinds.map(([k, t, d]) => <button key={k} className="mode" aria-pressed={kind === k} onClick={() => setKind(k)}><b>{t}</b><span>{d}</span></button>)}
-        </div>
-        <label className="field"><span className="label">Certificación o asignatura</span><input type="text" value={topic} maxLength={80} onChange={(e) => setTopic(e.target.value)} placeholder="p. ej. AWS Cloud Practitioner, Bioquímica II…" /></label>
-        <div className="row">
-          <label className="field grow"><span className="label">Preguntas</span><input type="number" min={5} max={200} value={n} onChange={(e) => setN(Math.max(5, Math.min(200, Number(e.target.value) || 40)))} /></label>
-          <div className="stack"><span className="label">Idioma</span><div className="seg"><button aria-pressed={lang === 'es'} onClick={() => setLang('es')}>Español</button><button aria-pressed={lang === 'en'} onClick={() => setLang('en')}>Inglés</button></div></div>
-        </div>
-      </section>
-      <section className="panel">
-        <div className="row between"><h2>Prompt</h2><button className="btn accent" onClick={async () => S().say((await copy(prompt)) ? 'Prompt copiado.' : 'No se pudo copiar; selecciónalo a mano.', 'ok')}>Copiar</button></div>
-        <pre className="prompt">{prompt}</pre>
-        <p className="small muted">Las preguntas son originales: el prompt pide no copiar preguntas reales de examen. Revisa siempre lo que genere la IA.</p>
-      </section>
-    </div>
-  )
-}
-
 function Format() {
   const json = JSON.stringify(TEMPLATE_JSON, null, 2)
   return (
     <div className="grid2">
       <section className="panel">
-        <h2>Formato BattleCert</h2>
+        <h2>Markdown: el más fácil de escribir</h2>
+        <p className="small">Recomendado para tus propias preguntas y para los ejemplos que das a la IA. Se escribe en cualquier editor, se lee bien en GitHub y admite código.</p>
         <ul className="small" style={{ margin: 0, paddingLeft: 20, display: 'grid', gap: 4 }}>
-          <li><code>stem</code>: el enunciado. <code>context</code> (opcional): un escenario o fragmento de código.</li>
-          <li><code>options</code>: de 2 a 8 opciones.</li>
-          <li><code>answer</code>: índices desde 0. Con varios, la pregunta es de respuesta múltiple.</li>
-          <li><code>domain</code>: el tema o dominio, para filtrar y ver tus puntos débiles.</li>
-          <li><code>explanation</code>: se muestra al revelar la respuesta.</li>
+          <li><code># Título</code> al principio: nombre del pack.</li>
+          <li><code>## </code> abre cada pregunta; debajo, el enunciado y, si hace falta, un bloque de código.</li>
+          <li><code>- [ ]</code> opción incorrecta, <code>- [x]</code> correcta (varias = respuesta múltiple).</li>
+          <li><code>&gt;</code> explicación.</li>
+          <li>Opcionales: <code>dominio:</code>, <code>dificultad:</code> (fácil, media, difícil), <code>concepto:</code>.</li>
+        </ul>
+        <pre className="prompt">{TEMPLATE_MD}</pre>
+        <button className="btn" onClick={() => download('plantilla-battlecert.md', TEMPLATE_MD, 'text/markdown')}>Descargar plantilla Markdown</button>
+      </section>
+      <section className="panel">
+        <h2>JSON y CSV</h2>
+        <ul className="small" style={{ margin: 0, paddingLeft: 20, display: 'grid', gap: 4 }}>
+          <li><code>stem</code>: enunciado · <code>context</code>: escenario o código (opcional).</li>
+          <li><code>options</code>: de 2 a 8 · <code>answer</code>: índices desde 0.</li>
+          <li><code>domain</code>, <code>difficulty</code> (1–3), <code>concept</code>, <code>explanation</code>.</li>
+          <li><code>concepts</code> (opcional): la ficha de repaso del pack.</li>
           <li>Límites: {LIMITS.questions} preguntas y {Math.round(LIMITS.textBytes / 1e6)} MB por pack.</li>
         </ul>
         <div className="row">
-          <button className="btn" onClick={() => download('plantilla-battlecert.json', json)}>Descargar plantilla JSON</button>
-          <button className="btn" onClick={() => download('plantilla-battlecert.csv', TEMPLATE_CSV, 'text/csv')}>Descargar plantilla CSV</button>
+          <button className="btn" onClick={() => download('plantilla-battlecert.json', json)}>Plantilla JSON</button>
+          <button className="btn" onClick={() => download('plantilla-battlecert.csv', TEMPLATE_CSV, 'text/csv')}>Plantilla CSV</button>
         </div>
+        <pre className="prompt">{json}</pre>
       </section>
-      <section className="panel"><h2>Ejemplo</h2><pre className="prompt">{json}</pre></section>
     </div>
   )
 }

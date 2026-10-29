@@ -157,7 +157,7 @@ function Summary({ P }: { P: PublicState }) {
   const m = E.MODES[P.settings.mode]
   return (
     <div className="stack">
-      <div className="row"><span className="chip">📦 {P.settings.packName}</span><span className="chip">🎮 {m.name}</span><span className="chip">❓ {P.settings.n}</span><span className="chip">⏱ {P.settings.secs} s</span></div>
+      <div className="row"><span className="chip">📦 {P.settings.packName}</span><span className="chip">🎮 {m.name}</span><span className="chip">❓ {P.settings.n}</span><span className="chip">⏱ {P.settings.secs} s</span>{P.settings.diff && P.settings.diff !== 'mix' && <span className="chip">📶 {{ ladder: 'Escalera', easy: 'Fáciles', medium: 'Medias', hard: 'Difíciles', mix: '' }[P.settings.diff]}</span>}</div>
       <p className="muted">{m.desc}</p>
       {P.settings.domains.length > 0 && <p className="small muted">Dominios: {P.settings.domains.join(', ')}</p>}
     </div>
@@ -219,6 +219,7 @@ function Play({ P }: { P: PublicState }) {
             <div className="progress" aria-hidden="true"><i style={{ width: `${((P.i + (reveal ? 1 : 0)) / Math.max(1, P.total)) * 100}%` }} /></div>
             <div className="row small" style={{ gap: 8 }}>
               <span className="chip">{E.MODES[mode].name}</span>
+              {q.difficulty && <span className={'diff d' + q.difficulty}>{['Fácil', 'Media', 'Difícil'][q.difficulty - 1]}</span>}
               {mode === 'survival' && sc && <span className="chip lives" aria-label={`${sc.lives} vidas`}>{'❤️'.repeat(Math.max(0, sc.lives))}{'🖤'.repeat(Math.max(0, E.LIVES - sc.lives))}</span>}
               {sc && sc.streak >= 2 && <span className="chip streak">🔥 racha {sc.streak}</span>}
             </div>

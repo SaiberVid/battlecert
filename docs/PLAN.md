@@ -234,3 +234,12 @@ Orden recomendado: 0 → 1 → 2 entregan el 80 % del valor. La fase 4 solo es n
 - Respeta `prefers-reduced-motion`; botón de silencio; tema claro/oscuro/automático; atajos de teclado 1–8.
 
 **Pendiente de fase 1:** modo Contrarreloj (60 s para responder todas las que puedas). Pasa a la fase 2.
+
+## 10. Estado (v0.3, 29-oct-2026) — packs con IA
+
+- Formato v2: `difficulty` (1–3), `concept` y `concepts` (ficha de repaso); Markdown como formato recomendado para escribir preguntas y ejemplos.
+- **Crear con IA**: temario (PDF/apuntes) + ejemplos → conceptos 80/20 → preguntas por peso y dificultad → verificación a ciegas. Motor automático con la clave gratuita de Gemini del usuario (sin servidor), o manual con cualquier chat.
+- Banco de preguntas acumulativo: añadir a un pack existente sin duplicados.
+- Dificultad en partida: Rebujado, Escalera, solo fáciles, medias o difíciles; insignia en cada pregunta.
+
+Siguiente: galería comunitaria de packs en el repo (PR con validación automática en CI), proveedores alternativos (Groq/OpenRouter con extracción de texto del PDF), modo Contrarreloj.

@@ -236,3 +236,72 @@ test.describe('encrypted relay fallback', () => {
     await expect(g.getByRole('alert').filter({ hasText: 'No se pudo entrar' })).toContainText('No hay ninguna sala abierta', { timeout: 30_000 })
   })
 })
+
+test('create a pack with AI from a syllabus and examples (Gemini mocked)', async ({ context }) => {
+  let calls = 0
+  let k = 0 // question counter across batches; #2 carries a wrong key on purpose
+  let sawKeyInUrl = false
+  await context.route('https://generativelanguage.googleapis.com/**', async (route) => {
+    const req = route.request()
+    const cors = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'content-type': 'application/json' }
+    if (req.method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cors })
+    if (/[?&]key=/.test(req.url())) sawKeyInUrl = true
+    expect(req.headers()['x-goog-api-key']).toBe('AIzaTEST')
+    if (req.url().includes('/models?')) return route.fulfill({ headers: cors, body: JSON.stringify({ models: [{ name: 'models/gemini-2.5-flash', supportedGenerationMethods: ['generateContent'] }, { name: 'models/gemini-2.5-flash-lite', supportedGenerationMethods: ['generateContent'] }] }) })
+    calls++
+    if (calls === 1) return route.fulfill({ status: 429, headers: cors, body: JSON.stringify({ error: { code: 429, message: 'quota', details: [{ retryDelay: '1s' }] } }) })
+    const body = JSON.parse(req.postData() || '{}')
+    const parts = body.contents[0].parts as { text?: string; inline_data?: unknown }[]
+    const prompt = parts.map((p) => p.text ?? '').join('\n')
+    const reply = (obj: unknown) => route.fulfill({ headers: cors, body: JSON.stringify({ candidates: [{ content: { parts: [{ text: '```json\n' + JSON.stringify(obj) + '\n```' }] } }] }) })
+    if (prompt.includes('conceptos que más pesan')) {
+      expect(parts.some((p) => p.inline_data)).toBe(true) // the PDF is sent as-is
+      expect(prompt).toContain('Preguntas de ejemplo')
+      return reply({ concepts: [
+        { name: 'Formas normales', domain: 'Diseño', weight: 5, summary: 'Reglas para evitar redundancia', facts: ['2FN quita dependencias parciales'], traps: ['Confundir 2FN y 3FN'] },
+        { name: 'JOIN', domain: 'SQL', weight: 3, summary: 'Combinar tablas', facts: ['INNER JOIN solo filas que casan'] },
+        { name: 'Índices', domain: 'Rendimiento', weight: 2, summary: 'Aceleran búsquedas', facts: ['B-tree por defecto'] },
+      ] })
+    }
+    if (prompt.includes('preguntas tipo test NUEVAS')) {
+      const quotas = [...prompt.matchAll(/- (\d+) × dificultad (\d) sobre "([^"]+)"/g)]
+      const questions = quotas.flatMap((m) => Array.from({ length: Number(m[1]) }, () => {
+        k++
+        return { concept: m[3], domain: m[3] === 'JOIN' ? 'SQL' : 'Diseño', difficulty: Number(m[2]), stem: `Pregunta ${m[3]} ${m[2]}-${k}-${Math.random().toString(36).slice(2, 6)}${k === 2 ? ' TRAMPA' : ''}?`, options: ['Correcta', 'B', 'C', 'D'], answer: [0], explanation: 'Porque sí.' }
+      }))
+      return reply({ questions })
+    }
+    if (prompt.includes('Responde estas preguntas')) {
+      const qs = JSON.parse(prompt.split('\n').find((l) => l.startsWith('[{'))!) as { i: number; stem: string }[]
+      return reply({ answers: qs.map((q) => ({ i: q.i, answer: q.stem.includes('TRAMPA') ? [1] : [0], ok: true })) })
+    }
+    return route.fulfill({ status: 500, headers: cors, body: '{}' })
+  })
+
+  const p = await open(context)
+  await profile(p, 'Estudiante')
+  await p.getByRole('button', { name: 'Gestionar packs →' }).click()
+  await p.getByRole('tab', { name: '✨ Crear con IA' }).click()
+  await p.getByPlaceholder(/Bases de datos, Java/).fill('Bases de datos')
+  await p.locator('input[type=file]').first().setInputFiles({ name: 'temario.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4 fake temario') })
+  await expect(p.getByText('📄 temario.pdf')).toBeVisible()
+  await p.getByPlaceholder(/o pégalas aquí/).fill('## ¿Qué es 2FN?\n- [x] Sin dependencias parciales\n- [ ] Sin NULL\ndificultad: media')
+  await p.getByRole('group', { name: 'Motor' }).getByRole('button', { name: /Automático/ }).click()
+  await p.locator('.seg button', { hasText: /^20$/ }).click()
+  await p.getByPlaceholder('AIza…').fill('AIzaTEST')
+  await p.getByRole('button', { name: 'Generar 20 preguntas' }).click()
+  await expect(p.getByText('esperando')).toBeVisible({ timeout: 10_000 }) // 429 handled politely
+  await expect(p.getByRole('heading', { name: /guardado/ })).toBeVisible({ timeout: 60_000 })
+  await expect(p.getByText('19 preguntas')).toBeVisible() // 20 − 1 dropped by the blind check
+  await expect(p.getByText('1 descartadas al comprobarlas')).toBeVisible()
+  await expect(p.getByText('3 conceptos')).toBeVisible()
+  expect(sawKeyInUrl).toBe(false) // the key travels in a header, never in the URL
+  // the key is not stored unless asked
+  expect(await p.evaluate(() => localStorage.getItem('battlecert.geminiKey'))).toBe('""')
+
+  await p.getByRole('button', { name: 'Jugar con este pack' }).click()
+  await expect(p.locator('.packrow[aria-pressed="true"]')).toContainText('Bases de datos')
+  await p.getByRole('group', { name: 'Dificultad' }).getByRole('button', { name: /Difíciles/ }).click()
+  await p.getByRole('button', { name: 'Practicar solo' }).click()
+  await expect(p.locator('.diff')).toHaveText('Difícil', { timeout: 10_000 })
+})

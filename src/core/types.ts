@@ -7,7 +7,23 @@ export interface Question {
   /** 0-based option indexes; more than one = multiple response */
   answer: number[]
   explanation: string
+  /** 1 easy · 2 medium · 3 hard (missing = medium) */
+  difficulty?: 1 | 2 | 3
+  /** The key concept this question checks (links to Pack.concepts) */
+  concept?: string
 }
+
+/** A key concept of the syllabus: the study sheet shown before playing. */
+export interface Concept {
+  name: string
+  domain?: string
+  /** 1–5: how much it weighs for passing */
+  weight: number
+  summary: string
+  traps?: string[]
+}
+
+export type DiffMode = 'mix' | 'ladder' | 'easy' | 'medium' | 'hard'
 
 export interface Pack {
   format: 'cert-arena/1' | 'battlecert/1'
@@ -17,6 +33,7 @@ export interface Pack {
   source: string
   license: string
   builtIn?: boolean
+  concepts?: Concept[]
   questions: Question[]
 }
 
@@ -27,6 +44,7 @@ export interface MatchSettings {
   n: number
   secs: number
   domains: string[]
+  diff?: DiffMode
   packId: string
   packName: string
 }
@@ -83,6 +101,7 @@ export interface PublicState {
     context?: string
     options: { k: number; t: string }[]
     need: number
+    difficulty?: 1 | 2 | 3
     answer?: number[]
     explanation?: string
   }

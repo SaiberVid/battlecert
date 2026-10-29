@@ -11,10 +11,12 @@
 ## Qué tiene
 
 - **Multijugador en directo, hasta 8 personas.** Entran con QR, enlace o un código de 6 caracteres. PIN opcional y expulsión.
+- **Dificultad a tu medida:** Rebujado, Escalera (de fácil a difícil) o solo un nivel.
 - **5 modos:** Clásico (acierto + rapidez + racha), Turnos + robo, Relámpago, Supervivencia (3 vidas) y Apuesta (arriesga ×1, ×2 o ×3).
 - **Tú eliges el ritmo:** de 5 a 120 segundos por pregunta, 5–50 preguntas, filtrado por dominios.
 - **Se siente como un juego:** sonidos que suben de tono con la racha, vibración en el móvil, cuenta atrás, reacciones, podio y confeti, revancha con marcador de serie. Con botón de silencio y respeto a "reducir movimiento".
 - **Aprendes al jugar:** explicación tras cada pregunta, repaso de fallos y tus dominios de peor a mejor al acabar; historial de partidas.
+- **Crea packs con IA desde tu temario:** sube el PDF de la asignatura y algunas preguntas de ejemplo; con una clave gratuita de Gemini la app saca los conceptos clave (ficha de repaso), genera preguntas fáciles, medias y difíciles, y las comprueba una a una. Sin clave, te da el prompt para cualquier chat. Ver [formato de packs](docs/PACK_FORMAT.md).
 - **Cualquier contenido:** importa packs en JSON, CSV o Markdown desde archivo, texto o URL (GitHub incluido). Te da **prompts listos** para que cualquier IA convierta un PDF, una guía oficial o un temario en preguntas (enfoque 80/20), y otro para corregir los errores que detecte el validador.
 - **Modo solo** para practicar sin conexión con nadie.
 
@@ -68,6 +70,7 @@ Cada push a `main` pasa tests y build, y publica la web en la rama `gh-pages`.
 
 ## Documentación
 
+- [Formato de packs y creación con IA](docs/PACK_FORMAT.md)
 - [Plan del proyecto y hoja de ruta](docs/PLAN.md)
 - [Seguridad y modelo de amenazas](SECURITY.md)
 - [Cómo contribuir](CONTRIBUTING.md)

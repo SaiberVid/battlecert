@@ -1,6 +1,6 @@
 import { MODES } from '../core/engine'
-import { domains } from '../core/packs'
-import type { Mode } from '../core/types'
+import { difficultyCounts, domains } from '../core/packs'
+import type { DiffMode, Mode } from '../core/types'
 import { useStore, updateSettings } from '../store'
 
 const MODE_ICON: Record<Mode, string> = { classic: '⚔️', turns: '🔁', blitz: '⚡', survival: '❤️', wager: '🎲' }
@@ -60,6 +60,19 @@ export function Settings({ onChange, compact = false }: { onChange?: () => void;
           </div>
         </div>
       </div>
+
+      {pack && pack.questions.some((q) => q.difficulty) && (() => {
+        const dc = difficultyCounts(pack)
+        const opts: [DiffMode, string][] = [['mix', 'Rebujado'], ['ladder', 'Escalera ↗'], ['easy', `Fáciles · ${dc[0]}`], ['medium', `Medias · ${dc[1]}`], ['hard', `Difíciles · ${dc[2]}`]]
+        return (
+          <div className="stack">
+            <span className="label">Dificultad</span>
+            <div className="seg" role="group" aria-label="Dificultad">
+              {opts.map(([k, l]) => <button key={k} aria-pressed={(st.diff ?? 'mix') === k} onClick={() => upd({ diff: k })}>{l}</button>)}
+            </div>
+          </div>
+        )
+      })()}
 
       {doms.length > 1 && (
         <div className="stack">

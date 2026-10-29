@@ -57,16 +57,34 @@ Ejemplo completo: [`public/packs/ejemplo-bases-de-datos.md`](../public/packs/eje
 - También se aceptan listas de preguntas de otros proyectos (`question`/`choices`/`correct`…) y CSV con cabecera `question,a,b,c,d,answer,explanation,domain,difficulty,concept`.
 - Límites: 5.000 preguntas y 5 MB por pack.
 
-## Crear un pack con IA
+## Crear un pack con IA: el cuaderno de fuentes
 
-En **Packs → ✨ Crear con IA**:
+En **Packs → ✨ Crear con IA** añades todo tu material, como en NotebookLM:
 
-1. Nombre de la asignatura, el **temario** (PDF o apuntes) y, si los tienes, **ejemplos de preguntas** (Markdown recomendado, o PDF/JSON/CSV).
-2. Número de preguntas, mezcla de dificultad (Equilibrada 30/45/25, Para aprobar 40/45/15, Reto 15/40/45) e idioma.
-3. Motor:
-   - **Automático con Gemini (gratis):** necesitas una clave de [Google AI Studio](https://aistudio.google.com/apikey) (sin tarjeta). La app la usa desde tu navegador; no pasa por ningún servidor de BattleCert.
-   - **Manual:** copia el prompt en cualquier chat (Claude, ChatGPT, Gemini…) con tus archivos y pega la respuesta.
+- **Archivos:** PDF (temario, guía oficial, PDFs de preguntas), Markdown, texto, JSON o CSV.
+- **Enlaces:** webs y PDFs online. Gemini los abre con su herramienta *URL context*. Las páginas que piden registro o bloquean robots no se pueden leer: guárdalas como PDF o copia el texto.
+- **YouTube:** vídeos públicos de repaso. El plan gratuito permite 8 horas de vídeo al día.
+- **Texto pegado:** apuntes o preguntas en cualquier formato.
 
-El proceso automático tiene tres pasos: saca los **conceptos que más pesan** (la ficha de repaso), escribe las preguntas repartidas por peso y dificultad, y luego **responde cada pregunta a ciegas** y descarta las que no coinciden con su clave. Puedes guardar el resultado como pack nuevo o **añadirlo a uno existente**: así tu banco crece tema a tema sin preguntas repetidas.
+Y eliges qué hacer:
 
-Revisa siempre una muestra: la IA puede equivocarse, sobre todo en cálculos. No uses volcados de exámenes oficiales como ejemplos: rompen los acuerdos de confidencialidad de las certificaciones.
+1. **Extraer todas las preguntas de las fuentes.** Copia enunciados y opciones completos y en su idioma original, **resuelve cada pregunta** y escribe la explicación (por qué la correcta lo es y por qué fallan las demás). Si la fuente marcaba otra respuesta, la corrige y lo avisa en la explicación ("⚠️ La fuente marcaba…"). Las preguntas de arrastrar u ordenar se convierten en opción única; las que dependen de una imagen se omiten y se cuentan.
+2. **Generar preguntas nuevas** parecidas al examen real: repartidas por el peso de cada dominio y concepto, con la mezcla de dificultad elegida y en el estilo del examen (Microsoft, AWS, Google Cloud, otros proveedores, universidad u oposición, o deducido de las fuentes). Las nuevas se comprueban a ciegas y se descartan las dudosas.
+
+En los dos casos la IA hace antes un **mapa del examen**: dominios con su peso (de la guía oficial si la añades), conceptos clave y estilo de las preguntas. Todo queda en el JSON del pack:
+
+| Campo | Para qué |
+|---|---|
+| `blueprint` | Peso de cada dominio en %. Las partidas reparten las preguntas igual que el examen real |
+| `concepts` | Ficha de repaso: conceptos por peso, resumen, datos clave y confusiones típicas |
+| `questions[].origin` | `source` (sacada de tus fuentes) o `ai` (nueva) |
+| `questions[].explanation` | El feedback que ves al resolver cada pregunta |
+
+Puedes guardar como pack nuevo o **añadir a uno existente sin duplicados**, así el banco crece con cada tanda de fuentes.
+
+### Motores
+
+- **Automático con Gemini (gratis):** clave de [Google AI Studio](https://aistudio.google.com/apikey), sin tarjeta. Las peticiones van de tu navegador a Google; BattleCert no tiene servidor. Si se alcanza el límite gratuito por minuto, la app espera y sigue.
+- **Manual (sin clave):** copia el **prompt maestro** en [NotebookLM](https://notebooklm.google.com) con tus fuentes (o en Gemini, Claude o ChatGPT con los archivos). Si la respuesta no cabe, el prompt pide continuar: escribe "sigue" y pega todas las respuestas juntas; la app une los bloques.
+
+Revisa siempre una muestra: la IA también se equivoca. Los packs son personales; la galería comunitaria del repo solo aceptará contenido original o con licencia que permita compartirlo.

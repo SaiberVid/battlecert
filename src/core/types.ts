@@ -11,7 +11,12 @@ export interface Question {
   difficulty?: 1 | 2 | 3
   /** The key concept this question checks (links to Pack.concepts) */
   concept?: string
+  /** 'source': taken from the user's material · 'ai': written by the AI */
+  origin?: 'source' | 'ai'
 }
+
+/** Official exam outline: share of the exam per domain (percent). */
+export interface BlueprintItem { domain: string; weight: number }
 
 /** A key concept of the syllabus: the study sheet shown before playing. */
 export interface Concept {
@@ -34,6 +39,7 @@ export interface Pack {
   license: string
   builtIn?: boolean
   concepts?: Concept[]
+  blueprint?: BlueprintItem[]
   questions: Question[]
 }
 

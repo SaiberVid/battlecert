@@ -35,6 +35,7 @@ const QuestionSchema = z.object({
   explanation: z.string().max(LIMITS.explanation),
   difficulty: z.union([z.literal(1), z.literal(2), z.literal(3)]).optional(),
   concept: z.string().max(LIMITS.domain).optional(),
+  origin: z.enum(['source', 'ai']).optional(),
 }).refine((q) => q.answer.every((a) => a < q.options.length), { message: 'respuesta fuera de las opciones' })
 
 export const PackSchema = z.object({
@@ -52,10 +53,11 @@ export const PackSchema = z.object({
     summary: z.string().max(1000),
     traps: z.array(z.string().max(300)).max(5).optional(),
   })).max(LIMITS.concepts).optional(),
+  blueprint: z.array(z.object({ domain: z.string().min(1).max(LIMITS.domain), weight: z.number().min(0).max(100) })).max(40).optional(),
   questions: z.array(QuestionSchema).max(LIMITS.questions),
 })
 
-type RawQ = { id?: unknown; domain?: unknown; stem?: unknown; context?: unknown; options?: unknown[]; answer?: unknown[]; explanation?: unknown; difficulty?: unknown; concept?: unknown }
+type RawQ = { id?: unknown; domain?: unknown; stem?: unknown; context?: unknown; options?: unknown[]; answer?: unknown[]; explanation?: unknown; difficulty?: unknown; concept?: unknown; origin?: unknown }
 
 /** 1/2/3 from numbers or words in Spanish or English ("fácil", "media", "hard"…). */
 export function parseDifficulty(v: unknown): 1 | 2 | 3 | undefined {
@@ -67,6 +69,18 @@ export function parseDifficulty(v: unknown): 1 | 2 | 3 | undefined {
   if (/^(media|medio|medium|intermedia|intermedio|normal|m)$/.test(t)) return 2
   if (/^(dificil|hard|alta|avanzada|avanzado|high|d)$/.test(t)) return 3
   return undefined
+}
+
+export function cleanBlueprint(list: unknown): { domain: string; weight: number }[] | undefined {
+  if (!Array.isArray(list)) return undefined
+  const out = list.filter((x) => x && typeof x === 'object').map((x) => {
+    const o = x as Record<string, unknown>
+    // "25", 25, "15-20%", "15–20 %" → number (ranges become their midpoint)
+    const nums = (String(o.weight ?? o.peso ?? o.percent ?? '').replace(',', '.').match(/\d+(\.\d+)?/g) ?? []).map(Number).slice(0, 2)
+    const w = nums.length ? nums.reduce((a, b) => a + b, 0) / nums.length : NaN
+    return { domain: String(o.domain ?? o.dominio ?? o.name ?? '').trim().slice(0, LIMITS.domain), weight: Number.isFinite(w) ? Math.min(100, Math.max(0, w)) : 0 }
+  }).filter((x) => x.domain && x.weight > 0).slice(0, 40)
+  return out.length ? out : undefined
 }
 
 function cleanConcepts(list: unknown): Concept[] | undefined {
@@ -113,12 +127,13 @@ function cleanQuestion(q: RawQ, i: number): [Question | null, string | null] {
     explanation: String(q.explanation ?? '').slice(0, LIMITS.explanation),
     difficulty: parseDifficulty(q.difficulty),
     concept: q.concept ? String(q.concept).trim().slice(0, LIMITS.domain) || undefined : undefined,
+    origin: q.origin === 'source' || q.origin === 'ai' ? q.origin : undefined,
   }, null]
 }
 
 export interface ImportResult { pack?: Pack; errors: string[]; dups: number; kind: string; error?: string }
 
-export function makePack(meta: { id?: string; name?: string; lang?: string; source?: string; license?: string; concepts?: unknown }, raw: RawQ[]): ImportResult {
+export function makePack(meta: { id?: string; name?: string; lang?: string; source?: string; license?: string; concepts?: unknown; blueprint?: unknown }, raw: RawQ[]): ImportResult {
   const errors: string[] = []
   const seen = new Set<string>()
   const ids = new Set<string>()
@@ -144,9 +159,11 @@ export function makePack(meta: { id?: string; name?: string; lang?: string; sour
     source: String(meta.source || '').slice(0, 500),
     license: String(meta.license || '').slice(0, 200),
     concepts: cleanConcepts(meta.concepts),
+    blueprint: cleanBlueprint(meta.blueprint),
     questions,
   }
   if (!pack.concepts) delete pack.concepts
+  if (!pack.blueprint) delete pack.blueprint
   const v = PackSchema.safeParse(pack)
   if (!v.success) return { errors: [...errors, ...v.error.issues.slice(0, 5).map((x) => x.path.join('.') + ': ' + x.message)], dups, kind: '', error: 'El pack no supera la validación.' }
   return { pack: v.data as Pack, errors, dups, kind: '' }
@@ -186,6 +203,7 @@ function fromArrayLike(list: AnyObj[]): RawQ[] {
       explanation,
       difficulty: q.difficulty ?? q.level ?? q.dificultad ?? q.nivel,
       concept: q.concept ?? q.concepto,
+      origin: q.origin,
     }
   })
 }
@@ -288,7 +306,7 @@ export function importText(text: string, meta: { name?: string; license?: string
         domain: exams ? (exams[String(q.exam)]?.title || String(q.exam ?? '')) + ' · ' + String(q.domain ?? '') : domNames[String(q.domain)] ?? q.domain,
       }))
       raw = kind === 'canonical' ? (qs as RawQ[]) : fromArrayLike(qs)
-      m = { id: dd.id, name: dd.name || dd.title || dd.code, lang: dd.lang, source: dd.source, license: dd.license, concepts: dd.concepts }
+      m = { id: dd.id, name: dd.name || dd.title || dd.code, lang: dd.lang, source: dd.source, license: dd.license, concepts: dd.concepts, blueprint: dd.blueprint }
     } else return { errors: [], dups: 0, kind: 'json', error: 'El JSON no tiene una lista "questions".' }
   } else if (/^\s*##\s*/m.test(t) && /\[(x|X| )\]/.test(t)) {
     kind = 'markdown'
@@ -377,7 +395,8 @@ export function mergePacks(base: Pack, extra: Pack): { pack: Pack; added: number
     out.push(c)
   }
   const concepts = cleanConcepts([...(base.concepts ?? []), ...(extra.concepts ?? [])])
-  const pack: Pack = { ...base, questions: out, ...(concepts ? { concepts } : {}) }
+  const blueprint = base.blueprint ?? extra.blueprint
+  const pack: Pack = { ...base, questions: out, ...(concepts ? { concepts } : {}), ...(blueprint ? { blueprint } : {}) }
   return { pack, added: out.length - base.questions.length, dups }
 }
 

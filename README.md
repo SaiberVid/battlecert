@@ -16,7 +16,7 @@
 - **Tú eliges el ritmo:** de 5 a 120 segundos por pregunta, 5–50 preguntas, filtrado por dominios.
 - **Se siente como un juego:** sonidos que suben de tono con la racha, vibración en el móvil, cuenta atrás, reacciones, podio y confeti, revancha con marcador de serie. Con botón de silencio y respeto a "reducir movimiento".
 - **Aprendes al jugar:** explicación tras cada pregunta, repaso de fallos y tus dominios de peor a mejor al acabar; historial de partidas.
-- **Crea packs con IA desde tu temario:** sube el PDF de la asignatura y algunas preguntas de ejemplo; con una clave gratuita de Gemini la app saca los conceptos clave (ficha de repaso), genera preguntas fáciles, medias y difíciles, y las comprueba una a una. Sin clave, te da el prompt para cualquier chat. Ver [formato de packs](docs/PACK_FORMAT.md).
+- **Crea packs con IA desde un cuaderno de fuentes:** PDFs, webs, vídeos de YouTube, apuntes y preguntas en cualquier formato. La IA saca el mapa del examen (dominios con su peso y conceptos clave), **extrae todas las preguntas** de tus fuentes, las resuelve y explica (corrigiendo las que vengan mal), y **genera otras nuevas** al estilo del examen real con la dificultad que elijas. Gratis con una clave de Gemini, o sin clave con el prompt maestro en NotebookLM. Ver [formato de packs](docs/PACK_FORMAT.md).
 - **Cualquier contenido:** importa packs en JSON, CSV o Markdown desde archivo, texto o URL (GitHub incluido). Te da **prompts listos** para que cualquier IA convierta un PDF, una guía oficial o un temario en preguntas (enfoque 80/20), y otro para corregir los errores que detecte el validador.
 - **Modo solo** para practicar sin conexión con nadie.
 

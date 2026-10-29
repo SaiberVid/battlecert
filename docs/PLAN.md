@@ -243,3 +243,11 @@ Orden recomendado: 0 → 1 → 2 entregan el 80 % del valor. La fase 4 solo es n
 - Dificultad en partida: Rebujado, Escalera, solo fáciles, medias o difíciles; insignia en cada pregunta.
 
 Siguiente: galería comunitaria de packs en el repo (PR con validación automática en CI), proveedores alternativos (Groq/OpenRouter con extracción de texto del PDF), modo Contrarreloj.
+
+## 11. Estado (v0.4, 30-oct-2026) — cuaderno de fuentes
+
+- Fuentes como NotebookLM: archivos, webs (URL context), YouTube y texto.
+- Extracción de todas las preguntas de las fuentes, con respuesta resuelta, explicación y corrección marcada cuando la fuente se equivoca.
+- Mapa del examen con los pesos oficiales (`blueprint`); las partidas reparten las preguntas por dominio como el examen real.
+- Estilos de examen (Microsoft, AWS, Google Cloud, proveedores, universidad, oposición).
+- Modo manual con un prompt maestro para NotebookLM, con continuación por bloques.

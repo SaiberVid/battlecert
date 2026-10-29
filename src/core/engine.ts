@@ -77,7 +77,14 @@ export function pick(pack: Pack, n: number, seed: number, domains: string[] = []
   for (const q of shuffle(pool, rand)) { const l = by.get(q.domain) || []; l.push(q); by.set(q.domain, l) }
   const keys = shuffle([...by.keys()], rand)
   const out: Question[] = []
+  // Like the real exam: when the pack has the official outline, each domain gets its share.
+  const bp = !doms && pack.blueprint?.length ? pack.blueprint.filter((b) => by.has(b.domain)) : []
+  if (bp.length) {
+    const W = bp.reduce((a, b) => a + b.weight, 0) || 1
+    for (const b of bp) { const want = Math.round((n * b.weight) / W); const l = by.get(b.domain)!; while (out.length < n && want > out.filter((q) => q.domain === b.domain).length && l.length) out.push(l.shift()!) }
+  }
   while (out.length < n && keys.some((k) => by.get(k)!.length)) for (const k of keys) if (out.length < n && by.get(k)!.length) out.push(by.get(k)!.shift()!)
+  if (bp.length && diff !== 'ladder') return shuffle(out, rand).map((q) => q.id)
   if (diff === 'ladder') out.sort((a, b) => level(a) - level(b))
   return out.map((q) => q.id)
 }

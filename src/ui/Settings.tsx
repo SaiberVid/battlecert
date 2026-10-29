@@ -66,7 +66,7 @@ export function Settings({ onChange, compact = false }: { onChange?: () => void;
         const opts: [DiffMode, string][] = [['mix', 'Rebujado'], ['ladder', 'Escalera ↗'], ['easy', `Fáciles · ${dc[0]}`], ['medium', `Medias · ${dc[1]}`], ['hard', `Difíciles · ${dc[2]}`]]
         return (
           <div className="stack">
-            <span className="label">Dificultad</span>
+            <span className="label">Dificultad{pack.blueprint ? ' · reparto por dominios como el examen real' : ''}</span>
             <div className="seg" role="group" aria-label="Dificultad">
               {opts.map(([k, l]) => <button key={k} aria-pressed={(st.diff ?? 'mix') === k} onClick={() => upd({ diff: k })}>{l}</button>)}
             </div>

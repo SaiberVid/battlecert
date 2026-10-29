@@ -3,7 +3,7 @@
 
 const API = 'https://generativelanguage.googleapis.com/v1beta'
 
-export type Part = { text: string } | { inline_data: { mime_type: string; data: string } }
+export type Part = { text: string } | { inline_data: { mime_type: string; data: string } } | { file_data: { file_uri: string; mime_type?: string } }
 
 export class AiError extends Error {
   code: 'key' | 'quota' | 'blocked' | 'network' | 'format' | 'aborted' | 'other'
@@ -48,12 +48,14 @@ const sleep = (ms: number, signal?: AbortSignal) => new Promise<void>((res, rej)
   signal?.addEventListener('abort', () => { clearTimeout(t); rej(new AiError('aborted', 'Cancelado.')) }, { once: true })
 })
 
-/** One JSON-mode request, retrying politely when the free quota per minute is hit. */
-export async function generateJson(key: string, model: string, system: string, parts: Part[], opts: { signal?: AbortSignal; temperature?: number; onWait?(secs: number): void } = {}): Promise<unknown> {
+/** One JSON request. `readUrls` lets Gemini open the web pages / PDFs linked in the prompt (URL context tool). */
+export async function generateJson(key: string, model: string, system: string, parts: Part[], opts: { signal?: AbortSignal; temperature?: number; onWait?(secs: number): void; readUrls?: boolean } = {}): Promise<unknown> {
   const body = JSON.stringify({
     systemInstruction: { parts: [{ text: system }] },
     contents: [{ role: 'user', parts }],
-    generationConfig: { responseMimeType: 'application/json', temperature: opts.temperature ?? 0.7 },
+    // JSON mode cannot be combined with tools, so with URL reading we parse the JSON from the text.
+    ...(opts.readUrls ? { tools: [{ url_context: {} }] } : {}),
+    generationConfig: { ...(opts.readUrls ? {} : { responseMimeType: 'application/json' }), temperature: opts.temperature ?? 0.7 },
   })
   for (let attempt = 0; ; attempt++) {
     const r = await call(`${API}/models/${encodeURIComponent(model)}:generateContent`, { method: 'POST', headers: headers(key), body }, opts.signal)

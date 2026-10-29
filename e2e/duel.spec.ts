@@ -237,37 +237,55 @@ test.describe('encrypted relay fallback', () => {
   })
 })
 
-test('create a pack with AI from a syllabus and examples (Gemini mocked)', async ({ context }) => {
+test('source notebook: extract, correct and generate questions (Gemini mocked)', async ({ context }) => {
   let calls = 0
-  let k = 0 // question counter across batches; #2 carries a wrong key on purpose
+  let k = 0 // generated-question counter; #2 carries a wrong key on purpose
   let sawKeyInUrl = false
+  const seen = { read: 0, yt: false, urlTool: false, extractPages: 0 }
   await context.route('https://generativelanguage.googleapis.com/**', async (route) => {
     const req = route.request()
     const cors = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'content-type': 'application/json' }
     if (req.method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cors })
     if (/[?&]key=/.test(req.url())) sawKeyInUrl = true
     expect(req.headers()['x-goog-api-key']).toBe('AIzaTEST')
-    if (req.url().includes('/models?')) return route.fulfill({ headers: cors, body: JSON.stringify({ models: [{ name: 'models/gemini-2.5-flash', supportedGenerationMethods: ['generateContent'] }, { name: 'models/gemini-2.5-flash-lite', supportedGenerationMethods: ['generateContent'] }] }) })
+    if (req.url().includes('/models?')) return route.fulfill({ headers: cors, body: JSON.stringify({ models: [{ name: 'models/gemini-2.5-flash', supportedGenerationMethods: ['generateContent'] }, { name: 'models/gemini-3.8-flash', supportedGenerationMethods: ['generateContent'] }] }) })
+    expect(req.url()).toContain('gemini-3.8-flash') // newest flash model chosen
     calls++
     if (calls === 1) return route.fulfill({ status: 429, headers: cors, body: JSON.stringify({ error: { code: 429, message: 'quota', details: [{ retryDelay: '1s' }] } }) })
     const body = JSON.parse(req.postData() || '{}')
-    const parts = body.contents[0].parts as { text?: string; inline_data?: unknown }[]
+    const parts = body.contents[0].parts as { text?: string; inline_data?: unknown; file_data?: { file_uri: string } }[]
     const prompt = parts.map((p) => p.text ?? '').join('\n')
     const reply = (obj: unknown) => route.fulfill({ headers: cors, body: JSON.stringify({ candidates: [{ content: { parts: [{ text: '```json\n' + JSON.stringify(obj) + '\n```' }] } }] }) })
-    if (prompt.includes('conceptos que más pesan')) {
-      expect(parts.some((p) => p.inline_data)).toBe(true) // the PDF is sent as-is
-      expect(prompt).toContain('Preguntas de ejemplo')
-      return reply({ concepts: [
-        { name: 'Formas normales', domain: 'Diseño', weight: 5, summary: 'Reglas para evitar redundancia', facts: ['2FN quita dependencias parciales'], traps: ['Confundir 2FN y 3FN'] },
-        { name: 'JOIN', domain: 'SQL', weight: 3, summary: 'Combinar tablas', facts: ['INNER JOIN solo filas que casan'] },
-        { name: 'Índices', domain: 'Rendimiento', weight: 2, summary: 'Aceleran búsquedas', facts: ['B-tree por defecto'] },
-      ] })
+    if (prompt.includes('devuelve su contenido útil para estudiar')) {
+      seen.read++
+      if (parts.some((p) => p.file_data?.file_uri.includes('youtube.com'))) { seen.yt = true; return reply({ title: 'Vídeo repaso', text: 'Autopilot registra dispositivos con el hash de hardware.' }) }
+      if (body.tools?.[0]?.url_context) seen.urlTool = true
+      expect(body.generationConfig.responseMimeType).toBeUndefined() // JSON mode is off when tools are used
+      return reply({ title: 'Preguntas web', text: '1. ¿Qué herramienta registra dispositivos en Autopilot? A) Hash de hardware B) MDM C) GPO. Respuesta: B' })
+    }
+    if (prompt.includes('Mapa') || prompt.includes('"blueprint"')) {
+      expect(parts.some((p) => p.inline_data)).toBe(true)
+      expect(prompt).toContain('Autopilot registra') // text read from the video reaches later steps
+      return reply({ blueprint: [{ domain: 'Identidad y cumplimiento', weight: '15-20%' }, { domain: 'Gestionar dispositivos', weight: 40 }, { domain: 'Aplicaciones', weight: 20 }], concepts: [
+        { name: 'Autopilot', domain: 'Gestionar dispositivos', weight: 5, summary: 'Aprovisionamiento', facts: ['Hash de hardware'], traps: ['Confundir con MDM'] },
+        { name: 'Compliance', domain: 'Identidad y cumplimiento', weight: 3, summary: 'Directivas de cumplimiento', facts: ['Acceso condicional'] },
+        { name: 'Win32 apps', domain: 'Aplicaciones', weight: 2, summary: 'Empaquetado intunewin', facts: ['IntuneWinAppUtil'] },
+      ], style: 'Escenarios Contoso.', questionsInSources: 3 })
+    }
+    if (prompt.includes('Extrae las preguntas tipo test')) {
+      seen.extractPages++
+      if (prompt.includes('nº 1 ')) return reply({ questions: [
+        { stem: '¿Qué registra un dispositivo en Autopilot?', options: ['Hash de hardware', 'MDM', 'GPO'], sourceAnswer: [1], answer: [0], explanation: 'Autopilot usa el hash de hardware.', domain: 'Gestionar dispositivos', concept: 'Autopilot', difficulty: 1 },
+        { stem: 'Contoso necesita bloquear equipos sin BitLocker. ¿Qué configuras?', options: ['Directiva de cumplimiento', 'Perfil Wi-Fi', 'Script'], sourceAnswer: [0], answer: [0], explanation: 'Cumplimiento + acceso condicional.', domain: 'Identidad y cumplimiento', difficulty: 2 },
+      ], skipped: 1, more: true })
+      return reply({ questions: [{ stem: '¿Qué herramienta empaqueta apps Win32?', options: ['IntuneWinAppUtil', 'MSIX'], sourceAnswer: null, answer: [0], explanation: 'Crea el .intunewin.', domain: 'Aplicaciones', difficulty: 1 }], more: false })
     }
     if (prompt.includes('preguntas tipo test NUEVAS')) {
+      expect(prompt).toContain('Preguntas reales de las fuentes') // extracted ones are the style examples
       const quotas = [...prompt.matchAll(/- (\d+) × dificultad (\d) sobre "([^"]+)"/g)]
       const questions = quotas.flatMap((m) => Array.from({ length: Number(m[1]) }, () => {
         k++
-        return { concept: m[3], domain: m[3] === 'JOIN' ? 'SQL' : 'Diseño', difficulty: Number(m[2]), stem: `Pregunta ${m[3]} ${m[2]}-${k}-${Math.random().toString(36).slice(2, 6)}${k === 2 ? ' TRAMPA' : ''}?`, options: ['Correcta', 'B', 'C', 'D'], answer: [0], explanation: 'Porque sí.' }
+        return { concept: m[3], domain: m[3] === 'Autopilot' ? 'Gestionar dispositivos' : m[3] === 'Win32 apps' ? 'Aplicaciones' : 'Identidad y cumplimiento', difficulty: Number(m[2]), stem: `Nueva ${m[3]} ${m[2]}-${k}${k === 2 ? ' TRAMPA' : ''}?`, options: ['Correcta', 'B', 'C', 'D'], answer: [0], explanation: 'Porque sí.' }
       }))
       return reply({ questions })
     }
@@ -282,26 +300,53 @@ test('create a pack with AI from a syllabus and examples (Gemini mocked)', async
   await profile(p, 'Estudiante')
   await p.getByRole('button', { name: 'Gestionar packs →' }).click()
   await p.getByRole('tab', { name: '✨ Crear con IA' }).click()
-  await p.getByPlaceholder(/Bases de datos, Java/).fill('Bases de datos')
-  await p.locator('input[type=file]').first().setInputFiles({ name: 'temario.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4 fake temario') })
-  await expect(p.getByText('📄 temario.pdf')).toBeVisible()
-  await p.getByPlaceholder(/o pégalas aquí/).fill('## ¿Qué es 2FN?\n- [x] Sin dependencias parciales\n- [ ] Sin NULL\ndificultad: media')
-  await p.getByRole('group', { name: 'Motor' }).getByRole('button', { name: /Automático/ }).click()
-  await p.locator('.seg button', { hasText: /^20$/ }).click()
+  await p.getByPlaceholder(/MD-102, Bases de datos/).fill('MD-102')
+  await p.locator('input[type=file]').first().setInputFiles({ name: 'guia-md102.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4 fake') })
+  await p.getByPlaceholder(/Enlace a una web/).fill('https://example.com/md-102-questions')
+  await p.getByRole('button', { name: 'Añadir', exact: true }).click()
+  await p.getByPlaceholder(/Enlace a una web/).fill('https://www.youtube.com/watch?v=abcdefghijk')
+  await p.getByRole('button', { name: 'Añadir', exact: true }).click()
+  await p.getByPlaceholder(/o pega texto/).fill('## ¿Qué es Intune?\n- [x] MDM en la nube\n- [ ] Un antivirus')
+  await p.getByRole('button', { name: 'Añadir texto' }).click()
+  await expect(p.getByRole('list', { name: 'Fuentes' }).locator('li')).toHaveCount(4)
+  await expect(p.getByText('▶️ www.youtube.com/watch')).toBeVisible()
+  await p.getByRole('group', { name: 'Preguntas nuevas' }).getByRole('button', { name: '20', exact: true }).click()
+  await p.getByLabel('Estilo del examen').selectOption('microsoft')
   await p.getByPlaceholder('AIza…').fill('AIzaTEST')
-  await p.getByRole('button', { name: 'Generar 20 preguntas' }).click()
-  await expect(p.getByText('esperando')).toBeVisible({ timeout: 10_000 }) // 429 handled politely
+  await p.getByRole('button', { name: 'Crear pack' }).click()
+  await expect(p.getByText('esperando')).toBeVisible({ timeout: 10_000 })
   await expect(p.getByRole('heading', { name: /guardado/ })).toBeVisible({ timeout: 60_000 })
-  await expect(p.getByText('19 preguntas')).toBeVisible() // 20 − 1 dropped by the blind check
-  await expect(p.getByText('1 descartadas al comprobarlas')).toBeVisible()
-  await expect(p.getByText('3 conceptos')).toBeVisible()
-  expect(sawKeyInUrl).toBe(false) // the key travels in a header, never in the URL
-  // the key is not stored unless asked
+  await expect(p.getByText('📥 3 de tus fuentes')).toBeVisible()
+  await expect(p.getByText('✨ 19 nuevas')).toBeVisible() // 20 − 1 dropped by the blind check
+  await expect(p.getByText('⚠️ 1 respuestas corregidas')).toBeVisible()
+  await expect(p.getByText('📊 3 dominios con peso')).toBeVisible()
+  await expect(p.getByText('🖼 1 con imagen omitidas')).toBeVisible()
+  expect(seen).toEqual({ read: 2, yt: true, urlTool: true, extractPages: 2 })
+  expect(sawKeyInUrl).toBe(false)
   expect(await p.evaluate(() => localStorage.getItem('battlecert.geminiKey'))).toBe('""')
+  const saved = await p.evaluate(() => JSON.parse(localStorage.getItem('battlecert.packs')!).find((x: { name: string }) => x.name === 'MD-102'))
+  expect(saved.blueprint[0]).toEqual({ domain: 'Identidad y cumplimiento', weight: 17.5 }) // '15-20%' → midpoint
+  const fixed = saved.questions.find((q: { stem: string }) => q.stem.startsWith('¿Qué registra'))
+  expect(fixed.answer).toEqual([0])
+  expect(fixed.explanation).toContain('La fuente marcaba «MDM»')
 
   await p.getByRole('button', { name: 'Jugar con este pack' }).click()
-  await expect(p.locator('.packrow[aria-pressed="true"]')).toContainText('Bases de datos')
   await p.getByRole('group', { name: 'Dificultad' }).getByRole('button', { name: /Difíciles/ }).click()
   await p.getByRole('button', { name: 'Practicar solo' }).click()
   await expect(p.locator('.diff')).toHaveText('Difícil', { timeout: 10_000 })
+})
+
+test('manual mode: master prompt and pasting several chat answers', async ({ context }) => {
+  const p = await open(context)
+  await p.getByRole('button', { name: 'Gestionar packs →' }).click()
+  await p.getByRole('tab', { name: '✨ Crear con IA' }).click()
+  await p.getByPlaceholder(/MD-102, Bases de datos/).fill('MD-102')
+  await p.getByRole('group', { name: 'Motor' }).getByRole('button', { name: /Manual/ }).click()
+  await expect(p.locator('pre.prompt')).toContainText('Extrae TODAS las preguntas')
+  const a1 = { format: 'battlecert/1', name: 'MD-102', blueprint: [{ domain: 'Apps', weight: 20 }], questions: [{ origin: 'source', stem: '¿P1?', options: ['a', 'b'], answer: [0], explanation: 'x', difficulty: 1, domain: 'Apps' }], continue: true }
+  const a2 = { questions: [{ origin: 'ai', stem: '¿P2 con {llaves}?', options: ['a', 'b'], answer: [1], explanation: 'y', difficulty: 3, domain: 'Apps' }] }
+  await p.getByPlaceholder(/Pega aquí la respuesta/).fill('```json\n' + JSON.stringify(a1) + '\n```\nsigue\n' + JSON.stringify(a2))
+  await p.getByRole('button', { name: 'Guardar pack' }).click()
+  await expect(p.getByText('📥 1 de tus fuentes')).toBeVisible()
+  await expect(p.getByText('✨ 1 nuevas')).toBeVisible()
 })

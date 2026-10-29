@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { planQuotas, manualPrompt, verifyPrompt } from './pipeline'
+import { planQuotas, masterPrompt, verifyPrompt, splitJsonBlocks, extractPrompt } from './pipeline'
 import { parseJsonLoose } from './gemini'
 import { TEMPLATE_MD, importText, mergePacks, parseDifficulty, difficultyCounts } from '../core/packs'
 import * as E from '../core/engine'
@@ -28,7 +28,12 @@ describe('AI helpers', () => {
     expect(parseJsonLoose('nada')).toBeUndefined()
   })
   it('prompts carry the subject, the mix and never the answers for verification', () => {
-    expect(manualPrompt('Java', 20, [30, 45, 25], 'es', '')).toContain('6 de dificultad 1')
+    const m = masterPrompt('MD-102', { extract: true, count: 20, mix: [30, 45, 25], lang: 'es', style: 'microsoft' })
+    expect(m).toContain('6 de dificultad 1')
+    expect(m).toContain('Contoso')
+    expect(m).toContain('Extrae TODAS')
+    expect(masterPrompt('X', { extract: false, count: 0, mix: [30, 45, 25], lang: 'es', style: 'auto' })).toContain('(no extraer preguntas)')
+    expect(extractPrompt(25, 25, ['Identidad'], [])).toContain('nº 26')
     const v = verifyPrompt([{ id: 'x', domain: 'd', stem: 'S', options: ['a', 'b'], answer: [1], explanation: 'porque b' }])
     expect(v).not.toContain('porque b')
     expect(v).not.toContain('"answer":[1]')
@@ -65,5 +70,27 @@ describe('pack format v2', () => {
     expect(E.pick(pack, 6, 1, [], [], 'hard').every((id) => lvl(id) === 3)).toBe(true)
     const ladder = E.pick(pack, 9, 1, [], [], 'ladder').map(lvl)
     expect(ladder).toEqual([...ladder].sort())
+  })
+})
+
+describe('pasting chat answers', () => {
+  it('splits several JSON answers, with fences and braces inside strings', () => {
+    const t = 'Aquí va:\n```json\n{"format":"battlecert/1","questions":[{"stem":"a {b}?"}],"continue":true}\n```\nsigue\n{"questions":[{"stem":"c"}]}'
+    const b = splitJsonBlocks(t)
+    expect(b).toHaveLength(2)
+    expect(JSON.parse(b[0]).questions[0].stem).toBe('a {b}?')
+  })
+})
+
+describe('blueprint', () => {
+  it('reads percentages and ranges', async () => {
+    const { cleanBlueprint } = await import('../core/packs')
+    expect(cleanBlueprint([{ domain: 'A', weight: '15–20 %' }, { domain: 'B', weight: 30 }, { domain: 'C', weight: '25,5%' }, { domain: '', weight: 5 }])).toEqual([{ domain: 'A', weight: 17.5 }, { domain: 'B', weight: 30 }, { domain: 'C', weight: 25.5 }])
+  })
+  it('picks questions per domain like the real exam', () => {
+    const qs = ['A', 'B'].flatMap((d) => Array.from({ length: 20 }, (_, i) => ({ id: d + i, stem: d + i, options: ['x', 'y'], answer: [0], domain: d })))
+    const pack = importText(JSON.stringify({ format: 'battlecert/1', name: 'P', blueprint: [{ domain: 'A', weight: 80 }, { domain: 'B', weight: 20 }], questions: qs })).pack!
+    const ids = E.pick(pack, 10, 3)
+    expect(ids.filter((id) => id.startsWith('A')).length).toBe(8)
   })
 })

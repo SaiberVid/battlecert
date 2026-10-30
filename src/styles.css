@@ -264,7 +264,27 @@ pre.prompt { max-height: 260px; overflow: auto; font: 12.5px/1.5 var(--mono); ba
 /* ---------- CERT KUMITE */
 .stage.kumite { grid-template-columns: 1fr; max-width: 980px; margin: 0 auto; width: 100%; }
 .karena { position: relative; width: 100%; max-width: 860px; margin: 0 auto; display: flex; flex-direction: column; gap: 0; border-radius: 14px; overflow: hidden; border: 2px solid #000; background: #0d1020; box-shadow: 0 -10px 30px -10px rgb(0 0 0 / .6); }
-@media (max-width: 699px) { .karena { position: sticky; bottom: 0; z-index: 5; margin: 0 -10px; width: calc(100% + 20px); border-radius: 12px 12px 0 0; } }
+/* KUMITE layout: the fight always stays in view.
+   phones: fight docked at the bottom · tablets/laptops: fight on top, sized by screen height
+   wide screens: fight on the left (sticky), question and answers on the right */
+.kfight { min-width: 0; }
+.karena { max-width: min(860px, calc((100dvh - 380px) * 2.1)); min-width: min(100%, 420px); }
+@media (min-width: 700px) and (min-aspect-ratio: 5/4) { .stage.kumite .kfight { order: -1; } }
+@media (max-width: 699px), (max-aspect-ratio: 5/4) {
+  .stage.kumite .kfight { order: 2; position: sticky; bottom: 0; z-index: 5; }
+  .stage.kumite .karena { max-width: min(100%, calc(40dvh * 2.1)); border-radius: 12px 12px 0 0; }
+}
+@media (max-width: 699px) { .stage.kumite .kfight { margin: 0 -10px; } .stage.kumite .karena { max-width: none; } }
+@media (min-width: 960px) and (min-aspect-ratio: 5/4) {
+  .app:has(.stage.kumite) { max-width: 1720px; }
+  .stage.kumite { max-width: none; grid-template-columns: minmax(0, 1.3fr) minmax(360px, 1fr); align-items: start; gap: 20px; }
+  .stage.kumite .kfight { position: sticky; top: 12px; }
+  .stage.kumite .karena { max-width: min(100%, calc((100dvh - 110px) * 2.1)); }
+  .stage.kumite .opts { grid-template-columns: 1fr; gap: 8px; }
+  .stage.kumite .opt { min-height: 52px; padding: 10px 12px; font-size: 15px; }
+  .stage.kumite .qcard { padding: 16px 18px; }
+  .stage.kumite .qtext { font-size: clamp(1.05rem, 1.15vw, 1.3rem); }
+}
 .kstage { display: block; width: 100%; aspect-ratio: 960 / 440; image-rendering: auto; }
 .khud { display: grid; grid-template-columns: 1fr minmax(90px, 1.3fr) 1fr; align-items: center; gap: 8px; padding: 6px 8px; background: linear-gradient(#141826, #0d1020); color: #f4f1ea; }
 .khud-side { display: flex; align-items: center; gap: 8px; min-width: 0; }

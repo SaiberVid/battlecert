@@ -248,7 +248,8 @@ function Play({ P }: { P: PublicState }) {
   const kumite = mode === 'kumite'
   return (
     <div className={'stage' + (kumite ? ' kumite' : '')}>
-      <div className="stack" style={{ gap: 12 }}>
+      {kumite && <div className="kfight"><Arena P={P} /></div>}
+      <div className="stack qcol" style={{ gap: 12 }}>
         <div className="hud">
           <Ring left={left} total={reveal ? (mode === 'kumite' ? E.KUMITE_REVEAL_MS : E.REVEAL_MS) : total} calm={reveal} />
           <div className="meta">
@@ -301,7 +302,6 @@ function Play({ P }: { P: PublicState }) {
           })}
         </div>
 
-        {kumite && <Arena P={P} />}
         {!reveal && <Status P={P} canAnswer={canAnswer} out={!!out} />}
         {reveal && <Reveal P={P} left={left} />}
       </div>

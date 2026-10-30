@@ -16,7 +16,6 @@ export default function App() {
   const view = useStore((s) => s.view)
   const role = useStore((s) => s.role)
   const sound = useStore((s) => s.sound)
-  const music = useStore((s) => s.music)
   const set = useStore((s) => s.set)
   const [theme, setTheme] = useState<Theme>(() => storage.get('theme', z.enum(['auto', 'light', 'dark']), 'auto'))
 
@@ -37,7 +36,6 @@ export default function App() {
         <button className="brand" onClick={home} aria-label="BattleCert, inicio"><Mark /> BattleCert</button>
         <div className="tools">
           <button className="btn icon ghost" onClick={() => { set({ sound: !sound }); storage.set('sound', !sound) }} aria-label={sound ? 'Silenciar sonido' : 'Activar sonido'} aria-pressed={sound} title="Sonido y vibración"><Icon name={sound ? 'sound' : 'mute'} /></button>
-          <button className="btn icon ghost" onClick={() => { set({ music: !music }); storage.set('music', !music) }} aria-label={music ? 'Quitar música' : 'Poner música'} aria-pressed={music} title="Música (KUMITE)" style={{ opacity: sound ? 1 : .4 }}><span aria-hidden="true" style={{ fontSize: 18, textDecoration: music ? 'none' : 'line-through' }}>♪</span></button>
           <button className="btn icon ghost" onClick={() => setTheme(NEXT[theme])} aria-label={'Tema: ' + THEME_NAME[theme]} title={'Tema: ' + THEME_NAME[theme]}><Icon name={theme} /></button>
         </div>
       </header>

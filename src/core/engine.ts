@@ -42,7 +42,9 @@ export interface Match {
   kf?: [string, string]
 }
 
-export const KUMITE_REVEAL_MS = 6_000
+/** KUMITE pause after each exchange: just enough for the animation (a K.O. needs a bit more). */
+export const KUMITE_REVEAL_MS = 3_800
+export const KUMITE_KO_MS = 5_200
 
 export function rng(seed: number): () => number {
   let a = seed >>> 0
@@ -241,7 +243,7 @@ export function tick(m: Match, pack: Pack, now: number): boolean {
     m.k = resolve(m.k, [!!a0?.ok, !!a1?.ok], [a0 ? a0.ms : null, a1 ? a1.ms : null])
   }
   m.phase = 'reveal'
-  m.deadline = now + (m.s.mode === 'kumite' ? KUMITE_REVEAL_MS : REVEAL_MS)
+  m.deadline = now + (m.s.mode === 'kumite' ? (m.k?.winner != null ? KUMITE_KO_MS : KUMITE_REVEAL_MS) : REVEAL_MS)
   return true
 }
 
@@ -287,10 +289,13 @@ export function publicState(m: Match, pack: Pack, now: number): PublicState {
   }
   if (m.k && m.kf) out.kumite = { ...m.k, fighters: m.kf }
   if (m.i >= 0 && m.i < m.qids.length && m.phase !== 'end') {
-    const q = qOf(pack, m.qids[m.i])
+    const q0 = qOf(pack, m.qids[m.i])
+    const lang = m.s.qlang ?? 'es'
+    const t = lang !== 'orig' ? q0.tr?.[lang] : undefined
+    const q = t ? { ...q0, ...t } : q0
     out.q = { id: q.id, domain: q.domain, stem: q.stem, context: q.context, options: (m.order[q.id] || q.options.map((_, k) => k)).map((k) => ({ k, t: q.options[k] })), need: q.answer.length, difficulty: q.difficulty }
     if (reveal) { out.q.answer = q.answer; out.q.explanation = q.explanation }
   }
-  if (m.phase === 'end') out.review = m.qids.slice(0, Math.max(0, m.i)).map((id) => { const x = qOf(pack, id); return { id, domain: x.domain, stem: x.stem, correct: x.answer.map((k) => x.options[k]) } })
+  if (m.phase === 'end') out.review = m.qids.slice(0, Math.max(0, m.i)).map((id) => { const x0 = qOf(pack, id); const lg = m.s.qlang ?? 'es'; const tx = lg !== 'orig' ? x0.tr?.[lg] : undefined; const x = tx ? { ...x0, ...tx } : x0; return { id, domain: x.domain, stem: x.stem, correct: x.answer.map((k) => x.options[k]) } })
   return out
 }

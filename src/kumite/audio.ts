@@ -1,7 +1,6 @@
-// 16-bit style sound for CERT KUMITE, synthesised live (square/triangle/noise channels, like the
-// sound chips of 90s consoles). No audio files: nothing to download and no licences to check.
+// 16-bit style sound effects for CERT KUMITE, synthesised live (square/triangle/noise channels,
+// like the sound chips of 90s consoles). No audio files: nothing to download and no licences to check.
 import { ac } from '../sound'
-import { S } from '../store'
 
 let noiseBuf: AudioBuffer | null = null
 function noise(a: AudioContext): AudioBuffer {
@@ -94,56 +93,4 @@ export const ksfx = {
     n.forEach((f, i) => { tone(a, o, x, f, f, d[i] * 0.95, 'square', 0.12); tone(a, o, x, f / 2, f / 2, d[i] * 0.95, 'triangle', 0.2); x += d[i] })
   }),
   lose: () => play((a, o, t) => { [392, 370, 349, 330].forEach((f, i) => tone(a, o, t + i * 0.28, f, f * 0.97, 0.26, 'square', 0.1)); tone(a, o, t + 1.12, 262, 196, 0.7, 'triangle', 0.25) }),
-}
-
-// ---------------------------------------------------------------- battle theme (original, looped)
-// 150 BPM, A minor. Lead (square 25%), bass (triangle), drums (noise). Notes in semitones from A4.
-const BPM = 150
-const STEP = 60 / BPM / 4 // sixteenth note
-const LEAD = [
-  0, null, 0, 3, null, 5, null, 7, null, 5, 3, null, 0, null, -2, null,
-  0, null, 0, 3, null, 5, null, 10, null, 8, 7, null, 5, null, 3, null,
-  0, null, 0, 3, null, 5, null, 7, null, 12, 10, null, 7, null, 5, null,
-  3, null, 5, 7, null, 8, null, 7, null, 5, 3, null, 2, null, 3, null,
-]
-const BASS = [-24, -24, -12, -24, -24, -12, -24, -12, -19, -19, -7, -19, -21, -21, -9, -21]
-const DRUM = 'k.h.s.h.k.k.s.h.k.h.s.h.k.hss.hs'
-
-let loop: { stop(): void } | null = null
-export function music(on: boolean) {
-  loop?.stop(); loop = null
-  if (!on || !S().music || !S().sound) return
-  const a = ac()
-  if (!a) return
-  const out = a.createGain()
-  out.gain.value = 0.16
-  out.connect(bus(a))
-  let step = 0
-  let next = a.currentTime + 0.1
-  const f = (semi: number) => 440 * Math.pow(2, semi / 12)
-  const timer = setInterval(() => {
-    while (next < a.currentTime + 0.25) {
-      const l = LEAD[step % LEAD.length]
-      if (l !== null) {
-        const o = a.createOscillator(), g = a.createGain()
-        o.type = 'square'; o.frequency.setValueAtTime(f(l), next)
-        g.gain.setValueAtTime(0.32, next); g.gain.exponentialRampToValueAtTime(0.001, next + STEP * 1.8)
-        o.connect(g).connect(out); o.start(next); o.stop(next + STEP * 2)
-      }
-      if (step % 2 === 0) {
-        const b = BASS[(step / 2) % BASS.length]
-        const o = a.createOscillator(), g = a.createGain()
-        o.type = 'triangle'; o.frequency.setValueAtTime(f(b), next)
-        g.gain.setValueAtTime(0.9, next); g.gain.exponentialRampToValueAtTime(0.001, next + STEP * 1.9)
-        o.connect(g).connect(out); o.start(next); o.stop(next + STEP * 2)
-      }
-      const d = DRUM[step % DRUM.length]
-      if (d === 'k') { const o = a.createOscillator(), g = a.createGain(); o.type = 'sine'; o.frequency.setValueAtTime(150, next); o.frequency.exponentialRampToValueAtTime(40, next + 0.12); g.gain.setValueAtTime(1, next); g.gain.exponentialRampToValueAtTime(0.001, next + 0.14); o.connect(g).connect(out); o.start(next); o.stop(next + 0.16) }
-      if (d === 's') hiss(a, out, next, 0.12, 0.8, 'highpass', 1500)
-      if (d === 'h') hiss(a, out, next, 0.04, 0.35, 'highpass', 7000)
-      step++
-      next += STEP
-    }
-  }, 60)
-  loop = { stop() { clearInterval(timer); try { out.gain.setTargetAtTime(0, a.currentTime, 0.05); setTimeout(() => out.disconnect(), 300) } catch { /* ignore */ } } }
 }

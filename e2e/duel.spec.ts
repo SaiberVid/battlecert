@@ -190,6 +190,30 @@ test('solo practice and pack import', async ({ context }) => {
   await expect(p.getByRole('heading', { name: 'Clasificación' })).toBeVisible()
 })
 
+test('an English pack is translated to Spanish with Gemini and played in Spanish', async ({ context }) => {
+  const { handler } = mockGemini()
+  await context.route('https://generativelanguage.googleapis.com/**', handler)
+  const p = await open(context)
+  await profile(p, 'Sola')
+  await p.getByRole('button', { name: 'Gestionar packs →' }).click()
+  await p.getByRole('tab', { name: 'Importar' }).click()
+  await p.getByPlaceholder('{"format":"battlecert/1", "questions":[…]}').fill(JSON.stringify({ name: 'English pack', lang: 'en', questions: [
+    { question: 'Which Intune feature registers devices?', options: ['Autopilot', 'Defender'], answer: 'a', explanation: 'Autopilot.', domain: 'Devices' },
+    { question: 'Which port does HTTPS use?', options: ['443', '80'], answer: 'a', explanation: '443.', domain: 'Net' },
+  ] }))
+  await p.getByRole('button', { name: 'Validar' }).click()
+  await p.getByRole('button', { name: 'Guardar pack' }).click()
+  await p.getByRole('tab', { name: 'Mis packs' }).click()
+  await p.getByRole('button', { name: 'Traducir al español' }).click()
+  await p.getByPlaceholder('Tu clave gratuita de Gemini (AIza…)').fill('AIzaTEST')
+  await p.getByRole('button', { name: 'Traducir', exact: true }).click()
+  await expect(p.getByText('EN + ES (2)')).toBeVisible({ timeout: 20_000 })
+  await p.getByRole('button', { name: '← Volver' }).click()
+  await p.getByRole('button', { name: 'Practicar solo' }).click()
+  await expect(p.getByText(/^ES: Which/)).toBeVisible({ timeout: 10_000 })
+  await expect(p.locator('.opt').first()).toContainText('(es)')
+})
+
 test.describe('encrypted relay fallback', () => {
   let broker: { close(): Promise<void> }
   test.beforeAll(async () => { const { startBroker } = await import('./mqtt-broker'); broker = startBroker(4181) })
@@ -290,6 +314,11 @@ function mockGemini(opts: { dayLimit?: (model: string, prompt: string) => boolea
         return { concept: m[3], domain: m[3] === 'Autopilot' ? 'Gestionar dispositivos' : m[3] === 'Win32 apps' ? 'Aplicaciones' : 'Identidad y cumplimiento', difficulty: Number(m[2]), stem: `Nueva ${m[3]} ${m[2]}-${st.k}${st.k === 2 ? ' TRAMPA' : ''}?`, options: ['Correcta', 'B', 'C', 'D'], answer: [0], explanation: 'Porque sí.' }
       }))
       return reply({ questions })
+    }
+    if (prompt.includes('Traduce estas preguntas')) {
+      expect(prompt).toContain('Deja EXACTAMENTE en inglés')
+      const qs = JSON.parse(prompt.split('\n').find((l) => l.startsWith('[{'))!) as { i: number; stem: string; options: string[] }[]
+      return reply({ items: qs.map((q) => ({ i: q.i, stem: 'ES: ' + q.stem, options: q.options.map((o) => o + ' (es)'), explanation: 'Explicación.' })) })
     }
     if (prompt.includes('Responde estas preguntas')) {
       const qs = JSON.parse(prompt.split('\n').find((l) => l.startsWith('[{'))!) as { i: number; stem: string }[]

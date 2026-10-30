@@ -201,3 +201,23 @@ describe('players', () => {
     expect(m2.round).toBe(1)
   })
 })
+
+describe('question language', () => {
+  const trPack: Pack = { ...pack, lang: 'en', questions: pack.questions.map((q) => ({ ...q, tr: { es: { stem: 'ES ' + q.stem, options: q.options.map((o) => 'es-' + o), explanation: 'es' } } })) }
+  const run = (qlang?: 'orig' | 'es' | 'en') => {
+    const m = E.newMatch('abcdef', { ...settings('classic'), qlang })
+    E.addPlayer(m, 'P0', '🦊', 'l0', 'tok0xxxxxx')
+    E.start(m, trPack, 42, 1_000)
+    E.tick(m, trPack, 1_000 + E.COUNTDOWN_MS)
+    return E.publicState(m, trPack, 1_000 + E.COUNTDOWN_MS).q!
+  }
+  it('shows the Spanish translation by default', () => {
+    const q = run()
+    expect(q.stem.startsWith('ES ')).toBe(true)
+    expect(q.options.every((o) => o.t.startsWith('es-'))).toBe(true)
+  })
+  it('shows the original text when asked', () => {
+    expect(run('orig').stem.startsWith('ES ')).toBe(false)
+    expect(run('en').stem.startsWith('ES ')).toBe(false)
+  })
+})

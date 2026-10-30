@@ -23,7 +23,7 @@ const AnswerPub = z.union([
 const ScorePub = z.object({ pts: z.number(), ok: z.number(), n: z.number(), ms: z.number(), streak: z.number(), best: z.number(), stl: z.number(), lives: z.number(), out: z.boolean(), dom: z.record(z.string(), z.tuple([z.number(), z.number()])) })
 export const PublicStateSchema = z.object({
   code: z.string().max(12),
-  settings: z.object({ mode: z.enum(['classic', 'turns', 'blitz', 'survival', 'wager', 'kumite']), n: z.number(), secs: z.number(), domains: z.array(Str).max(200), kLen: z.enum(['short', 'normal', 'epic']).optional(), diff: z.enum(['mix', 'ladder', 'easy', 'medium', 'hard']).optional(), packId: z.string().max(80), packName: z.string().max(120) }),
+  settings: z.object({ mode: z.enum(['classic', 'turns', 'blitz', 'survival', 'wager', 'kumite']), n: z.number(), secs: z.number(), domains: z.array(Str).max(200), kLen: z.enum(['short', 'normal', 'epic']).optional(), qlang: z.enum(['orig', 'es', 'en']).optional(), diff: z.enum(['mix', 'ladder', 'easy', 'medium', 'hard']).optional(), packId: z.string().max(80), packName: z.string().max(120) }),
   players: z.array(z.object({ pid: z.string().max(20), nick: z.string().max(40), avatar: z.string().max(16), online: z.boolean(), fighter: z.string().max(20).optional(), cpu: z.boolean().optional() })).max(8),
   i: z.number(), total: z.number(), phase: z.enum(['lobby', 'countdown', 'q', 'steal', 'reveal', 'end']), active: z.string().max(20).nullable(),
   ans: z.record(z.string().max(20), AnswerPub), sc: z.record(z.string().max(20), ScorePub), round: z.number(), series: z.record(z.string().max(40), z.number()), rem: z.number(),

@@ -1,8 +1,11 @@
 import { useRef, useState } from 'react'
-import { LIMITS, TEMPLATE_CSV, TEMPLATE_JSON, TEMPLATE_MD, difficultyCounts, domains, fixPrompt, importText, type ImportResult } from '../core/packs'
+import { z } from 'zod'
+import { translatePack } from '../ai/translate'
+import { AiError } from '../ai/gemini'
+import { LIMITS, TEMPLATE_CSV, TEMPLATE_JSON, TEMPLATE_MD, difficultyCounts, domains, fixPrompt, importText, translatedCount, type ImportResult } from '../core/packs'
 import { Generate, StudySheet } from './Generate'
 import type { Pack } from '../core/types'
-import { saveCustomPacks, updateSettings, useStore, S } from '../store'
+import { saveCustomPacks, storage, updateSettings, useStore, S } from '../store'
 import { copy } from './common'
 
 type Tab = 'mine' | 'import' | 'ai' | 'format'
@@ -40,6 +43,25 @@ function Mine({ onImport, onAi }: { onImport: () => void; onAi: () => void }) {
   const packs = useStore((s) => s.packs)
   const [open, setOpen] = useState<string | null>(null)
   const [sheet, setSheet] = useState<string | null>(null)
+  const [tr, setTr] = useState<{ id: string; done: number; total: number; note?: string; error?: string; ask?: boolean } | null>(null)
+  const [key, setKey] = useState(() => storage.get('geminiKey', z.string().max(200), ''))
+  const abort = useRef<AbortController | null>(null)
+  const translate = async (p: Pack) => {
+    if (!key.trim()) return setTr({ id: p.id, done: 0, total: p.questions.length, ask: true })
+    const ctrl = new AbortController()
+    abort.current = ctrl
+    setTr({ id: p.id, done: translatedCount(p, 'es'), total: p.questions.length })
+    const save = (np: Pack) => { useStore.setState({ packs: S().packs.map((x) => (x.id === np.id ? np : x)) }); saveCustomPacks() }
+    try {
+      await translatePack(key.trim(), p, 'es', { signal: ctrl.signal, onBatch: save, onProgress: (done, total, note) => setTr({ id: p.id, done, total, note }) })
+      if (S().settings.packId === p.id) updateSettings({ qlang: 'es' })
+      setTr(null)
+      S().say(`“${p.name}” traducido al español. Ya puedes jugarlo en español.`, 'ok')
+    } catch (e) {
+      const done = translatedCount(S().packs.find((x) => x.id === p.id) ?? p, 'es')
+      setTr({ id: p.id, done, total: p.questions.length, error: (e instanceof AiError ? e.message : (e as Error).message) + (done ? ` Ya hay ${done} traducidas; pulsa de nuevo para seguir.` : '') })
+    } finally { abort.current = null }
+  }
   const remove = (p: Pack) => {
     if (!confirmDelete(p)) return
     useStore.setState({ packs: S().packs.filter((x) => x.id !== p.id) })
@@ -55,17 +77,36 @@ function Mine({ onImport, onAi }: { onImport: () => void; onAi: () => void }) {
             <div className="row between">
               <div className="stack" style={{ gap: 2 }}>
                 <h3>{p.builtIn ? '📦 ' : '📝 '}{p.name}</h3>
-                <span className="small muted">{p.questions.length} preguntas · {doms.length} dominios · {p.lang.toUpperCase()} · {p.license}</span>
+                <span className="small muted">{p.questions.length} preguntas · {doms.length} dominios · {p.lang.toUpperCase()}{translatedCount(p, 'es') && p.lang !== 'es' ? ` + ES (${translatedCount(p, 'es')})` : ''} · {p.license}</span>
                 {(() => { const d = difficultyCounts(p); return p.questions.some((q) => q.difficulty) ? <span className="small muted">🟢 {d[0]} · 🟡 {d[1]} · 🔴 {d[2]}{p.concepts ? ` · 🧠 ${p.concepts.length} conceptos` : ''}</span> : null })()}
               </div>
               <div className="row" style={{ gap: 6 }}>
                 <button className="btn sm" onClick={() => { updateSettings({ packId: p.id, packName: p.name, domains: [] }); useStore.setState({ view: 'home' }) }}>Jugar</button>
+                {!p.builtIn && translatedCount(p, 'es') < p.questions.length && p.lang !== 'es' && <button className="btn sm" disabled={!!tr && !tr.error && !tr.ask} onClick={() => void translate(p)}>Traducir al español</button>}
                 {p.concepts && <button className="btn sm" onClick={() => setSheet(sheet === p.id ? null : p.id)} aria-expanded={sheet === p.id}>Ficha</button>}
                 <button className="btn sm" onClick={() => setOpen(open === p.id ? null : p.id)} aria-expanded={open === p.id}>Detalles</button>
                 <button className="btn sm" onClick={() => download(p.id + '.json', JSON.stringify({ ...p, builtIn: undefined, format: 'battlecert/1' }, null, 1))}>Exportar</button>
                 {!p.builtIn && <button className="btn sm danger" onClick={() => remove(p)}>Borrar</button>}
               </div>
             </div>
+            {tr?.id === p.id && (
+              <div className="stack small" aria-live="polite">
+                {tr.ask ? (
+                  <form className="row" onSubmit={(e) => { e.preventDefault(); storage.set('geminiKey', key.trim()); void translate(p) }}>
+                    <input className="grow" type="password" autoComplete="off" value={key} onChange={(e) => setKey(e.target.value)} placeholder="Tu clave gratuita de Gemini (AIza…)" />
+                    <button className="btn sm accent" disabled={!key.trim()}>Traducir</button>
+                  </form>
+                ) : (
+                  <>
+                    <div className="row between"><span>{tr.error ? 'Traducción interrumpida' : 'Traduciendo al español… (comandos y nombres técnicos se quedan en inglés)'}</span><span className="mono">{tr.done}/{tr.total}</span></div>
+                    <div className="progress"><i style={{ width: `${(tr.done / Math.max(1, tr.total)) * 100}%` }} /></div>
+                    {tr.note && <span className="muted">{tr.note}</span>}
+                    {tr.error && <div className="warn" role="alert">{tr.error}</div>}
+                    {!tr.error && <button className="btn sm" style={{ alignSelf: 'flex-start' }} onClick={() => abort.current?.abort()}>Cancelar</button>}
+                  </>
+                )}
+              </div>
+            )}
             {sheet === p.id && <StudySheet pack={p} />}
             {open === p.id && (
               <div className="stack small">

@@ -217,11 +217,14 @@ function cpuTick(now: number) {
     const r = cpuAnswer(brain, Math.random)
     cpuPlan = { i: M.i, at: M.qStart + r.ms, ok: r.ok, ms: r.ms }
   }
+  // once the human has answered, the CPU doesn't keep everyone waiting
+  const human = M.kf?.find((pid) => pid !== cpu.pid)
+  if (human && M.ans[human] && cpuPlan.at > now + 600) cpuPlan.at = now + 300 + Math.floor(Math.random() * 400)
   if (now < cpuPlan.at) return
   const q = hostPack().questions.find((x) => x.id === M!.qids[M!.i])!
   const wrong = q.options.map((_, k) => k).filter((k) => !q.answer.includes(k))
   const choice = cpuPlan.ok || !wrong.length ? q.answer : [wrong[Math.floor(Math.random() * wrong.length)]]
-  if (E.answer(M, hostPack(), cpu.pid, choice, cpuPlan.ms, now)) { E.tick(M, hostPack(), now); afterChange() }
+  if (E.answer(M, hostPack(), cpu.pid, choice, Math.min(cpuPlan.ms, now - M.qStart), now)) { E.tick(M, hostPack(), now); afterChange() }
 }
 
 /** After a solo KUMITE fight: next rival if you won, same rival again if you lost. */

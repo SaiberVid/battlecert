@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { LIMITS, TEMPLATE_CSV, TEMPLATE_JSON, aiPrompt, importText, PackSchema } from './packs'
+import { LIMITS, TEMPLATE_CSV, TEMPLATE_JSON, aiPrompt, cleanTr, importText, PackSchema, translatedCount } from './packs'
+import type { Pack } from './types'
+import ccdv from '../data/claude-ccdv-f.json'
+import ccarf from '../data/claude-ccar-f.json'
+import ccarp from '../data/claude-ccar-p.json'
 
 describe('importText', () => {
   it('imports the canonical template', () => {
@@ -51,5 +55,32 @@ describe('aiPrompt', () => {
     expect(p).toContain('Bioquímica')
     expect(p).toContain('battlecert/1')
     expect(p).toContain('80/20')
+  })
+})
+
+describe('translations', () => {
+  const es = { stem: '¿Qué puerto?', options: ['80', '443'], explanation: 'HTTPS usa 443.' }
+  it('cleanTr keeps well-formed translations and drops mismatched option counts', () => {
+    expect(cleanTr({ es }, 2)).toEqual({ es })
+    expect(cleanTr({ es }, 3)).toBeUndefined()
+    expect(cleanTr({ es: { stem: 'x' } }, 2)).toBeUndefined()
+    expect(cleanTr('nope', 2)).toBeUndefined()
+  })
+  it('imports a pack with tr and counts translated questions', () => {
+    const raw = { name: 'T', questions: [{ question: 'Which port?', options: ['80', '443'], answer: 'b', explanation: 'HTTPS uses 443.', tr: { es } }, { question: 'Other?', options: ['a', 'b'], answer: 'a' }] }
+    const r = importText(JSON.stringify(raw))
+    expect(r.error).toBeUndefined()
+    expect(r.pack!.questions[0].tr?.es?.stem).toBe('¿Qué puerto?')
+    expect(translatedCount(r.pack!, 'es')).toBe(1)
+    expect(PackSchema.safeParse(r.pack).success).toBe(true)
+  })
+  it('built-in packs are valid and fully translated to Spanish, keeping technical names in English', () => {
+    for (const p of [ccdv, ccarf, ccarp] as unknown as Pack[]) {
+      expect(PackSchema.safeParse(p).success).toBe(true)
+      expect(translatedCount(p, 'es')).toBe(p.questions.length)
+      for (const q of p.questions) expect(q.tr!.es!.options).toHaveLength(q.options.length)
+    }
+    const all = JSON.stringify([ccdv, ccarf, ccarp])
+    for (const term of ['Message Batches API', 'tool_choice', 'CLAUDE.md', 'PreToolUse', 'stop_reason']) expect(all).toContain(term)
   })
 })

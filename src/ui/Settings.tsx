@@ -1,6 +1,6 @@
 import { MODES } from '../core/engine'
 import { KUMITE_LENGTHS, type KumiteLength } from '../core/kumite'
-import { difficultyCounts, domains } from '../core/packs'
+import { difficultyCounts, domains, translatedCount } from '../core/packs'
 import type { DiffMode, Mode } from '../core/types'
 import { useStore, updateSettings } from '../store'
 
@@ -70,6 +70,23 @@ export function Settings({ onChange, compact = false }: { onChange?: () => void;
           </div>
         </div>
       </div>
+
+      {pack && (() => {
+        const es = translatedCount(pack, 'es'), en = translatedCount(pack, 'en')
+        const n = pack.questions.length
+        const cur = st.qlang === 'en' ? 'en' : 'es'
+        if (!es && !en) return pack.lang !== 'es' ? <p className="small muted">Preguntas en {pack.lang.toUpperCase()}. Para jugarlas en español, tradúcelas en <b>Gestionar packs</b>.</p> : null
+        return (
+          <div className="stack">
+            <span className="label">Idioma de las preguntas</span>
+            <div className="seg" role="group" aria-label="Idioma de las preguntas">
+              <button aria-pressed={cur === 'es'} onClick={() => upd({ qlang: 'es' })}>Español{pack.lang !== 'es' && es < n ? ` (${es}/${n})` : ''}</button>
+              <button aria-pressed={cur === 'en'} onClick={() => upd({ qlang: 'en' })}>English{pack.lang !== 'en' && en < n ? ` (${en}/${n})` : ''}</button>
+            </div>
+            <span className="small muted">Los comandos y los nombres de herramientas se quedan en inglés, como en el examen.</span>
+          </div>
+        )
+      })()}
 
       {pack && pack.questions.some((q) => q.difficulty) && (() => {
         const dc = difficultyCounts(pack)

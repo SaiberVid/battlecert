@@ -13,7 +13,12 @@ export interface Question {
   concept?: string
   /** 'source': taken from the user's material · 'ai': written by the AI */
   origin?: 'source' | 'ai'
+  /** translations: same options in the same order, so `answer` stays valid */
+  tr?: Partial<Record<QLang, QText>>
 }
+
+export type QLang = 'es' | 'en'
+export interface QText { stem: string; context?: string; options: string[]; explanation: string }
 
 /** Official exam outline: share of the exam per domain (percent). */
 export interface BlueprintItem { domain: string; weight: number }
@@ -51,6 +56,8 @@ export interface MatchSettings {
   secs: number
   domains: string[]
   diff?: DiffMode
+  /** language to show the questions in ('orig' = as written) */
+  qlang?: 'orig' | QLang
   /** CERT KUMITE platform length */
   kLen?: 'short' | 'normal' | 'epic'
   packId: string

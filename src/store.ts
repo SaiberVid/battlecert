@@ -24,7 +24,7 @@ const ResultSchema = z.object({
   players: z.array(z.object({ nick: z.string(), avatar: z.string().optional(), pts: z.number(), ok: z.number(), n: z.number(), ms: z.number(), best: z.number() })),
 })
 export type Result = z.infer<typeof ResultSchema>
-const SettingsSchema = z.object({ mode: z.enum(['classic', 'turns', 'blitz', 'survival', 'wager', 'kumite']), n: z.number(), secs: z.number(), domains: z.array(z.string()), diff: z.enum(['mix', 'ladder', 'easy', 'medium', 'hard']).optional(), kLen: z.enum(['short', 'normal', 'epic']).optional(), packId: z.string(), packName: z.string() })
+const SettingsSchema = z.object({ mode: z.enum(['classic', 'turns', 'blitz', 'survival', 'wager', 'kumite']), n: z.number(), secs: z.number(), domains: z.array(z.string()), diff: z.enum(['mix', 'ladder', 'easy', 'medium', 'hard']).optional(), kLen: z.enum(['short', 'normal', 'epic']).optional(), qlang: z.enum(['orig', 'es', 'en']).optional(), packId: z.string(), packName: z.string() })
 
 export interface Local { key: string; start: number; deadline: number; chosen: number[]; sent: { i: number; ph: string; c: number[]; ms: number; bet?: number } | null; bet: number }
 export interface Reaction { id: number; pid: string; e: string }
@@ -37,7 +37,6 @@ interface State {
   nick: string
   avatar: string
   sound: boolean
-  music: boolean
   fighter: string
   /** CERT KUMITE solo tournament: rivals in order and how far you are */
   tour: { order: string[]; stage: number } | null
@@ -75,7 +74,6 @@ export const useStore = create<State>((set) => ({
   nick: storage.get('nick', z.string().max(20), ''),
   avatar: storage.get('avatar', z.string().refine((a) => AVATARS.includes(a)), AVATARS[Math.floor(Math.random() * AVATARS.length)]),
   sound: storage.get('sound', z.boolean(), true),
-  music: storage.get('music', z.boolean(), true),
   fighter: storage.get('fighter', z.string().refine(isFighter), FIGHTERS[Math.floor(Math.random() * FIGHTERS.length)].id),
   tour: null,
   packs: [...BUILTIN, ...custom.map((p) => ({ ...p, builtIn: false }))],

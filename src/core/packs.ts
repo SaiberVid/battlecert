@@ -25,6 +25,13 @@ export function hash(s: string): string {
 const norm = (s: string) => String(s || '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim()
 export const slug = (s: string) => norm(s).replace(/ /g, '-').replace(/[^a-z0-9-]/g, '').slice(0, 40) || 'pack'
 
+const QTextSchema = z.object({
+  stem: z.string().min(1).max(LIMITS.stem),
+  context: z.string().max(LIMITS.stem).optional(),
+  options: z.array(z.string().min(1).max(LIMITS.option)).min(2).max(LIMITS.options),
+  explanation: z.string().max(LIMITS.explanation),
+})
+
 const QuestionSchema = z.object({
   id: z.string().min(1).max(80),
   domain: z.string().min(1).max(LIMITS.domain),
@@ -36,7 +43,8 @@ const QuestionSchema = z.object({
   difficulty: z.union([z.literal(1), z.literal(2), z.literal(3)]).optional(),
   concept: z.string().max(LIMITS.domain).optional(),
   origin: z.enum(['source', 'ai']).optional(),
-}).refine((q) => q.answer.every((a) => a < q.options.length), { message: 'respuesta fuera de las opciones' })
+  tr: z.object({ es: z.lazy(() => QTextSchema).optional(), en: z.lazy(() => QTextSchema).optional() }).optional(),
+}).refine((q) => !q.tr || Object.values(q.tr).every((t) => !t || t.options.length === q.options.length), { message: 'la traducción no tiene las mismas opciones' }).refine((q) => q.answer.every((a) => a < q.options.length), { message: 'respuesta fuera de las opciones' })
 
 export const PackSchema = z.object({
   format: z.enum(['cert-arena/1', 'battlecert/1']),
@@ -57,7 +65,7 @@ export const PackSchema = z.object({
   questions: z.array(QuestionSchema).max(LIMITS.questions),
 })
 
-type RawQ = { id?: unknown; domain?: unknown; stem?: unknown; context?: unknown; options?: unknown[]; answer?: unknown[]; explanation?: unknown; difficulty?: unknown; concept?: unknown; origin?: unknown }
+type RawQ = { id?: unknown; domain?: unknown; stem?: unknown; context?: unknown; options?: unknown[]; answer?: unknown[]; explanation?: unknown; difficulty?: unknown; concept?: unknown; origin?: unknown; tr?: unknown }
 
 /** 1/2/3 from numbers or words in Spanish or English ("fácil", "media", "hard"…). */
 export function parseDifficulty(v: unknown): 1 | 2 | 3 | undefined {
@@ -69,6 +77,22 @@ export function parseDifficulty(v: unknown): 1 | 2 | 3 | undefined {
   if (/^(media|medio|medium|intermedia|intermedio|normal|m)$/.test(t)) return 2
   if (/^(dificil|hard|alta|avanzada|avanzado|high|d)$/.test(t)) return 3
   return undefined
+}
+
+/** Keeps only well-formed translations with the same number of options. */
+export function cleanTr(v: unknown, n: number): Question['tr'] {
+  if (!v || typeof v !== 'object') return undefined
+  const out: NonNullable<Question['tr']> = {}
+  for (const lang of ['es', 'en'] as const) {
+    const r = QTextSchema.safeParse((v as Record<string, unknown>)[lang])
+    if (r.success && r.data.options.length === n) out[lang] = r.data
+  }
+  return Object.keys(out).length ? out : undefined
+}
+
+/** How many questions have a translation into `lang`. */
+export function translatedCount(pack: Pack, lang: 'es' | 'en'): number {
+  return pack.questions.filter((q) => q.tr?.[lang]).length
 }
 
 export function cleanBlueprint(list: unknown): { domain: string; weight: number }[] | undefined {
@@ -128,6 +152,7 @@ function cleanQuestion(q: RawQ, i: number): [Question | null, string | null] {
     difficulty: parseDifficulty(q.difficulty),
     concept: q.concept ? String(q.concept).trim().slice(0, LIMITS.domain) || undefined : undefined,
     origin: q.origin === 'source' || q.origin === 'ai' ? q.origin : undefined,
+    tr: cleanTr(q.tr, options.length),
   }, null]
 }
 
@@ -204,6 +229,7 @@ function fromArrayLike(list: AnyObj[]): RawQ[] {
       difficulty: q.difficulty ?? q.level ?? q.dificultad ?? q.nivel,
       concept: q.concept ?? q.concepto,
       origin: q.origin,
+      tr: q.tr,
     }
   })
 }

@@ -54,6 +54,7 @@ Ejemplo completo: [`public/packs/ejemplo-bases-de-datos.md`](../public/packs/eje
 - `answer`: índices desde 0.
 - `difficulty`: 1 fácil, 2 media, 3 difícil. Si falta, cuenta como media.
 - `concepts` (opcional): la **ficha de repaso**; `weight` de 1 a 5 indica cuánto pesa para aprobar.
+- `tr` (opcional): traducciones de cada pregunta, junto al original. `"tr": {"es": {"stem": "…", "context": "…", "options": ["…"], "explanation": "…"}}`, con las mismas opciones y en el mismo orden. La sala muestra el idioma elegido en **Idioma de las preguntas** y, si falta la traducción, el original. El botón *Traducir al español* de *Mis packs* las rellena con Gemini dejando en inglés comandos, parámetros y nombres de herramientas.
 - También se aceptan listas de preguntas de otros proyectos (`question`/`choices`/`correct`…) y CSV con cabecera `question,a,b,c,d,answer,explanation,domain,difficulty,concept`.
 - Límites: 5.000 preguntas y 5 MB por pack.
 

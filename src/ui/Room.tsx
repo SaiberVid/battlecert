@@ -250,7 +250,7 @@ function Play({ P }: { P: PublicState }) {
     <div className={'stage' + (kumite ? ' kumite' : '')}>
       <div className="stack" style={{ gap: 12 }}>
         <div className="hud">
-          <Ring left={left} total={reveal ? E.REVEAL_MS : total} calm={reveal} />
+          <Ring left={left} total={reveal ? (mode === 'kumite' ? E.KUMITE_REVEAL_MS : E.REVEAL_MS) : total} calm={reveal} />
           <div className="meta">
             <div className="row between small"><span className="label">{kumite ? `Asalto ${P.i + 1}` : `Pregunta ${P.i + 1}`}{mode === 'survival' || kumite ? '' : ' de ' + P.total}</span><span className="label" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '55%' }}>{q.domain}</span></div>
             <div className="progress" aria-hidden="true"><i style={{ width: `${((P.i + (reveal ? 1 : 0)) / Math.max(1, P.total)) * 100}%` }} /></div>

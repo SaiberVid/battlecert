@@ -21,6 +21,7 @@ interface Sim {
   shake: { until: number; amp: number }
   fall: { who: 0 | 1; t0: number } | null
   banner: { text: string; until: number; tone: 'ko' | 'clash' | 'combo' | 'guard' | 'info' } | null
+  tags: { i: 0 | 1; ok: boolean; until: number }[]
   lastN: number
   winner: 0 | 1 | null
 }
@@ -28,17 +29,18 @@ interface Sim {
 export interface StageProps {
   k: KumiteState & { fighters: [string, string] }
   fighters: [string | undefined, string | undefined] // fighter ids
+  names?: [string, string]
   ready?: [boolean, boolean] // answered already (only a "!" bubble, never right/wrong)
   over?: boolean
 }
 
 const posOf = (k: KumiteState): [number, number] => [k.c - GAP, k.c + GAP]
 
-export function Stage({ k, fighters, ready = [false, false], over = false }: StageProps) {
+export function Stage({ k, fighters, names = ['P1', 'P2'], ready = [false, false], over = false }: StageProps) {
   const ref = useRef<HTMLCanvasElement>(null)
   const sim = useRef<Sim | null>(null)
-  const props = useRef({ k, fighters, ready, over })
-  useEffect(() => { props.current = { k, fighters, ready, over } })
+  const props = useRef({ k, fighters, ready, over, names })
+  useEffect(() => { props.current = { k, fighters, ready, over, names } })
   const [f0, f1] = fighters
 
   // new event → schedule its animation
@@ -47,7 +49,7 @@ export function Stage({ k, fighters, ready = [false, false], over = false }: Sta
     if (!sim.current) {
       const p = posOf(k)
       const idle: Anim = { pose: 'idle1', until: 0, lunge: 0, lungeUntil: 0 }
-      sim.current = { x: p, from: p, to: p, t0: now, dur: 1, anim: [{ ...idle }, { ...idle }], fx: [], shake: { until: 0, amp: 0 }, fall: null, banner: null, lastN: k.last.n, winner: k.winner }
+      sim.current = { x: p, from: p, to: p, t0: now, dur: 1, anim: [{ ...idle }, { ...idle }], fx: [], shake: { until: 0, amp: 0 }, fall: null, banner: null, tags: [], lastN: k.last.n, winner: k.winner }
       if (k.winner !== null) {
         settleWinner(sim.current, k.winner, now)
         // opened after the K.O. (end screen): the loser has already fallen off
@@ -56,7 +58,7 @@ export function Stage({ k, fighters, ready = [false, false], over = false }: Sta
       return
     }
     const s = sim.current
-    if (k.last.n !== s.lastN) { play(s, k, k.last, now); s.lastN = k.last.n }
+    if (k.last.n !== s.lastN) { play(s, k, k.last, now, props.current.names); s.lastN = k.last.n }
     if (k.winner !== null && s.winner === null) s.winner = k.winner
   }, [k])
 
@@ -122,7 +124,10 @@ export function Stage({ k, fighters, ready = [false, false], over = false }: Sta
           if (alpha <= 0) continue
         }
         drawFighter(ctx, imgs.f[i], F[i], pose, x, y, i === 1, alpha)
-        if (rdy[i] && s.winner === null) bubble(ctx, x, y - F[i].height * SCALE - 14, F[i].color)
+        const head = y - F[i].height * SCALE - 14
+        if (rdy[i] && s.winner === null) bubble(ctx, x, head, F[i].color)
+        const tag = s.tags.find((t) => t.i === i && now < t.until)
+        if (tag) label(ctx, x, head - 6, (props.current.names[i] || '').toUpperCase().slice(0, 12), tag.ok)
       }
       // effects
       s.fx = s.fx.filter((f) => now < f.t0 + f.dur)
@@ -147,9 +152,9 @@ export function Stage({ k, fighters, ready = [false, false], over = false }: Sta
         const fill = b.tone === 'ko' ? '#ffcc33' : b.tone === 'clash' ? '#bfe6ff' : b.tone === 'combo' ? '#ff9a3c' : b.tone === 'guard' ? '#ffe066' : '#ffffff'
         const pop = Math.min(1, (now - (b.until - (b.tone === 'ko' ? 1e9 : 1000))) / 120)
         ctx.save()
-        ctx.translate(W / 2, b.tone === 'ko' ? H * 0.38 : 64)
+        ctx.translate(W / 2, b.tone === 'ko' ? H * 0.24 : 64)
         ctx.scale(0.6 + 0.4 * Math.max(0, Math.min(1, pop)), 0.6 + 0.4 * Math.max(0, Math.min(1, pop)))
-        ctx.font = `800 ${size}px 'Bricolage Grotesque', system-ui, sans-serif`
+        ctx.font = `${Math.round(size * 0.62)}px 'Press Start 2P', monospace`
         ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
         ctx.lineJoin = 'round'; ctx.lineWidth = size / 6; ctx.strokeStyle = '#1a0a0a'
         ctx.strokeText(b.text, 0, 0)
@@ -187,13 +192,28 @@ function bubble(ctx: CanvasRenderingContext2D, x: number, y: number, color: stri
   ctx.restore()
 }
 
+/** Name tag over a fighter: green "✓ ACIERTA" or red "✗ FALLA". */
+function label(ctx: CanvasRenderingContext2D, x: number, y: number, name: string, ok: boolean) {
+  ctx.save()
+  ctx.textAlign = 'center'; ctx.textBaseline = 'bottom'; ctx.lineJoin = 'round'
+  ctx.font = `11px 'Press Start 2P', monospace`
+  ctx.lineWidth = 4; ctx.strokeStyle = '#000'
+  ctx.strokeText(name, x, y - 18); ctx.fillStyle = '#fff'; ctx.fillText(name, x, y - 18)
+  ctx.font = `13px 'Press Start 2P', monospace`
+  const t = ok ? 'ACIERTA' : 'FALLA'
+  ctx.strokeText(t, x, y); ctx.fillStyle = ok ? '#5dff8a' : '#ff5a5a'; ctx.fillText(t, x, y)
+  ctx.restore()
+}
+
 function settleWinner(s: Sim, w: 0 | 1, now: number) {
   s.winner = w
   s.anim[w] = { pose: 'win', until: now + 1e9, lunge: 0, lungeUntil: 0 }
 }
 
 /** Turns one fight event into poses, movement, effects, sounds and a banner. */
-function play(s: Sim, k: KumiteState, ev: KumiteEvent, now: number) {
+function play(s: Sim, k: KumiteState, ev: KumiteEvent, now: number, names: [string, string]) {
+  const shout = (n: string) => (n || '').toUpperCase().slice(0, 12)
+  const tagUntil = now + 1900
   const to = posOf(k)
   const mid = (s.x[0] + s.x[1]) / 2
   s.from = [...s.x] as [number, number]; s.to = to; s.t0 = now + 180; s.dur = 520
@@ -201,12 +221,15 @@ function play(s: Sim, k: KumiteState, ev: KumiteEvent, now: number) {
     s.anim = [{ pose: 'strong', until: now + 650, lunge: 22, lungeUntil: now + 260 }, { pose: 'strong', until: now + 650, lunge: 22, lungeUntil: now + 260 }]
     s.fx.push({ kind: 'clash', x: mid, y: -78, t0: now + 90, dur: 520, scale: 1.1 })
     s.shake = { until: now + 220, amp: 5 }
-    s.banner = { text: '¡CHOQUE!', until: now + 900, tone: 'clash' }
+    s.banner = { text: '¡DOBLE ACIERTO!', until: now + 1300, tone: 'clash' }
+    s.tags = [{ i: 0, ok: true, until: tagUntil }, { i: 1, ok: true, until: tagUntil }]
     ksfx.clash()
     if (k.combo[0] >= 3 || k.combo[1] >= 3) setTimeout(() => ksfx.combo(Math.max(...k.combo)), 250)
   } else if (ev.type === 'hit' && ev.by !== undefined) {
     const a = ev.by, d = (1 - a) as 0 | 1
     const atk = ev.attack ?? 'quick'
+    s.tags = [{ i: a, ok: true, until: tagUntil }, { i: d, ok: false, until: tagUntil }]
+    s.banner = { text: `¡GOLPE DE ${shout(names[a])}!`, until: now + 1000, tone: 'info' }
     s.anim[a] = { pose: atk, until: now + 640, lunge: atk === 'special' ? 34 : 24, lungeUntil: now + 260 }
     s.anim[d] = { pose: 'hurt', until: now + 700, lunge: 0, lungeUntil: 0 }
     const hitX = s.x[d] + (d === 1 ? -0.35 : 0.35)
@@ -231,7 +254,8 @@ function play(s: Sim, k: KumiteState, ev: KumiteEvent, now: number) {
   } else if (ev.type === 'stumble') {
     s.anim = [{ pose: 'hurt', until: now + 450, lunge: 0, lungeUntil: 0 }, { pose: 'hurt', until: now + 450, lunge: 0, lungeUntil: 0 }]
     s.fx.push({ kind: 'dizzy', x: s.x[0], y: -150, t0: now, dur: 1300, scale: 0.55 }, { kind: 'dizzy', x: s.x[1], y: -150, t0: now, dur: 1300, scale: 0.55 })
-    s.banner = { text: 'FALLAN LOS DOS', until: now + 1000, tone: 'info' }
+    s.banner = { text: '¡FALLAN LOS DOS!', until: now + 1100, tone: 'info' }
+    s.tags = [{ i: 0, ok: false, until: tagUntil }, { i: 1, ok: false, until: tagUntil }]
     ksfx.stumble()
   }
 }

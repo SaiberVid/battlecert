@@ -4,7 +4,7 @@ import qrcode from 'qrcode-generator'
 import { useStore } from '../store'
 import { reducedMotion } from '../sound'
 
-export const SHAPES = ['▲', '◆', '●', '■', '★', '⬟', '⬢', '✚']
+export const SHAPES = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H']
 
 export function colorOf(index: number) { return `var(--p${(index % 8) + 1})` }
 

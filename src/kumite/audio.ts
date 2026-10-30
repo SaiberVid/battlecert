@@ -72,7 +72,14 @@ export const ksfx = {
     [392, 523, 659, 784].forEach((f, i) => tone(a, o, t + i * 0.035, f, f * 1.02, 0.06, 'square', 0.1))
     hiss(a, o, t + 0.14, 0.3, 0.7, 'lowpass', 5000, 200); tone(a, o, t + 0.14, 200, 40, 0.35, 'square', 0.35); tone(a, o, t + 0.14, 80, 30, 0.4, 'triangle', 0.6)
   }),
-  clash: () => play((a, o, t) => { tone(a, o, t, 1568, 1480, 0.18, 'square', 0.12); tone(a, o, t, 2349, 2200, 0.14, 'square', 0.08); hiss(a, o, t, 0.12, 0.45, 'highpass', 5000, 2000); tone(a, o, t, 140, 70, 0.12, 'square', 0.2) }),
+  // both right: two blows meet and are blocked — a metallic "clang" with a ringing tail
+  clash: () => play((a, o, t) => {
+    hiss(a, o, t, 0.06, 0.7, 'lowpass', 3000, 600)
+    tone(a, o, t, 160, 70, 0.14, 'square', 0.3)
+    ;[[1046, 0.5], [1568, 0.45], [2217, 0.35], [2960, 0.3]].forEach(([f, d]) => tone(a, o, t + 0.01, f, f * 0.985, d, 'square', 0.07))
+    hiss(a, o, t + 0.01, 0.18, 0.4, 'bandpass', 4200, 2500)
+    tone(a, o, t + 0.09, 1568, 1555, 0.35, 'triangle', 0.12)
+  }),
   whoosh: () => play((a, o, t) => hiss(a, o, t, 0.25, 0.35, 'bandpass', 600, 2400, 0.5)),
   stumble: () => play((a, o, t) => { tone(a, o, t, 300, 180, 0.12, 'triangle', 0.25); tone(a, o, t + 0.12, 260, 150, 0.16, 'triangle', 0.25) }),
   slide: () => play((a, o, t) => hiss(a, o, t, 0.3, 0.25, 'lowpass', 1200, 200, 0.6)),

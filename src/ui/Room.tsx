@@ -344,6 +344,7 @@ function Reveal({ P, left }: { P: PublicState; left: number }) {
         {full && <span className="pts">{full.pts >= 0 ? '+' : ''}{full.pts}</span>}
       </div>
       {isTurn && <OthersLine P={P} />}
+      {P.kumite && <KumiteLine P={P} />}
       {P.q?.explanation && <div className="explain"><span className="label">Por qué</span><br />{P.q.explanation}</div>}
       <div className="row between">
         <div className="reactbar" role="group" aria-label="Reacciones">
@@ -355,6 +356,21 @@ function Reveal({ P, left }: { P: PublicState; left: number }) {
         </div>
       </div>
     </motion.div>
+  )
+}
+
+function KumiteLine({ P }: { P: PublicState }) {
+  const myPid = useStore((s) => s.myPid)
+  const k = P.kumite!
+  return (
+    <div className="kline" role="status">
+      {k.fighters.map((pid) => {
+        const p = P.players.find((x) => x.pid === pid)
+        const a = P.ans[pid]
+        const res = a && 'ok' in a ? (a.ok ? 'ok' : 'bad') : 'none'
+        return <span key={pid} className={'kl ' + res}>{res === 'ok' ? '✓' : '✗'} <b>{p?.nick ?? '—'}{pid === myPid ? ' (tú)' : ''}</b> {res === 'ok' ? 'acierta' : res === 'bad' ? 'falla' : 'no responde'}</span>
+      })}
+    </div>
   )
 }
 

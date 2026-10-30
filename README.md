@@ -4,6 +4,8 @@
 
 **[▶ Jugar ahora](https://saibervid.github.io/battlecert/)**
 
+![CERT KUMITE: cada acierto empuja al rival fuera de la plataforma](docs/kumite.gif)
+
 *Live multiplayer quiz duels for any exam or subject. Free, no accounts, peer-to-peer. Bring your own question pack (JSON/CSV/Markdown) or generate one with any AI from your notes.*
 
 ---

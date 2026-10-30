@@ -9,6 +9,7 @@ import { storage, useStore } from '../store'
 import { unlockAudio, sfx } from '../sound'
 import { Settings } from './Settings'
 import { FighterPicker } from '../kumite/Hud'
+import { KumiteHero } from '../kumite/Hero'
 import { setFighter } from '../session'
 import { fmtMs } from './common'
 
@@ -74,6 +75,8 @@ export function Home() {
         <h1>Estudia compitiendo. <em>En directo.</em></h1>
         <p>Crea una sala, comparte el QR y responde tests contra tus amigos, de cualquier certificación o asignatura. Gratis, sin cuentas y sin servidores: la partida vive en tu navegador.</p>
       </motion.div>
+
+      {!invite && <KumiteHero />}
 
       {invite && (
         <section className="panel hero" aria-labelledby="inv-h">

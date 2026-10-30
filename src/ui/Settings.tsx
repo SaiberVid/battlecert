@@ -1,9 +1,10 @@
 import { MODES } from '../core/engine'
+import { KUMITE_LENGTHS, type KumiteLength } from '../core/kumite'
 import { difficultyCounts, domains } from '../core/packs'
 import type { DiffMode, Mode } from '../core/types'
 import { useStore, updateSettings } from '../store'
 
-const MODE_ICON: Record<Mode, string> = { classic: '⚔️', turns: '🔁', blitz: '⚡', survival: '❤️', wager: '🎲' }
+const MODE_ICON: Record<Mode, string> = { classic: '⚔️', turns: '🔁', blitz: '⚡', survival: '❤️', wager: '🎲', kumite: '🥋' }
 const COUNTS = [5, 10, 15, 20, 30, 50]
 const SPEEDS: { label: string; secs: number }[] = [{ label: 'Rayo 5 s', secs: 5 }, { label: 'Rápido 10 s', secs: 10 }, { label: 'Normal 20 s', secs: 20 }, { label: 'Calma 30 s', secs: 30 }, { label: 'Examen 60 s', secs: 60 }, { label: 'Lento 90 s', secs: 90 }]
 
@@ -46,12 +47,21 @@ export function Settings({ onChange, compact = false }: { onChange?: () => void;
       </div>
 
       <div className="stack" style={{ gap: 16 }}>
+        {st.mode === 'kumite' ? (
+          <div className="stack">
+            <span className="label">Plataforma (cuánto dura el combate)</span>
+            <div className="seg" role="group" aria-label="Plataforma">
+              {(Object.keys(KUMITE_LENGTHS) as KumiteLength[]).map((k) => <button key={k} aria-pressed={(st.kLen ?? 'normal') === k} onClick={() => upd({ kLen: k })}>{KUMITE_LENGTHS[k].name}</button>)}
+            </div>
+          </div>
+        ) : (
         <div className="stack">
           <span className="label">{st.mode === 'survival' ? 'Preguntas (hasta que quede uno)' : 'Preguntas'}</span>
           <div className="seg" role="group" aria-label="Número de preguntas">
             {COUNTS.map((n) => <button key={n} aria-pressed={st.n === n} onClick={() => upd({ n })}>{n}</button>)}
           </div>
         </div>
+        )}
         <div className="stack">
           <label className="label" htmlFor="secs">Tiempo por pregunta: <b className="mono" style={{ color: 'var(--ink)' }}>{st.secs} s</b></label>
           <input id="secs" type="range" min={5} max={120} step={1} value={st.secs} onChange={(e) => upd({ secs: Number(e.target.value) })} />

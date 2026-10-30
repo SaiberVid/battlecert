@@ -8,6 +8,8 @@ import { createRoom, join } from '../session'
 import { storage, useStore } from '../store'
 import { unlockAudio, sfx } from '../sound'
 import { Settings } from './Settings'
+import { FighterPicker } from '../kumite/Hud'
+import { setFighter } from '../session'
 import { fmtMs } from './common'
 
 function readHash(): { code: string; pin: string | null; secret: string | null; forceRelay: boolean } | null {
@@ -44,6 +46,8 @@ export function Home() {
   const [code, setCode] = useState(invite?.code || '')
   const [busy, setBusy] = useState(false)
   const usePin = useStore((s) => s.usePin)
+  const mode = useStore((s) => s.settings.mode)
+  const fighter = useStore((s) => s.fighter)
   const set = useStore((s) => s.set)
   const history = useStore((s) => s.history)
   const joinError = useStore((s) => s.joinError)
@@ -97,10 +101,16 @@ export function Home() {
         <section className="panel" aria-labelledby="new-h">
           <h2 id="new-h">Crear partida</h2>
           <Settings />
+          {mode === 'kumite' && (
+            <div className="stack">
+              <span className="label">Tu luchador</span>
+              <FighterPicker value={fighter} onPick={setFighter} />
+            </div>
+          )}
           <label className="switch"><input type="checkbox" checked={usePin} onChange={(e) => { set({ usePin: e.target.checked }); storage.set('usePin', e.target.checked) }} /> <span>Proteger la sala con PIN <span className="muted small">(va incluido en el QR y el enlace)</span></span></label>
           <div className="row">
             <button className="btn big accent grow" disabled={busy} onClick={() => void doCreate(false)}>Crear sala</button>
-            <button className="btn big" disabled={busy} onClick={() => void doCreate(true)}>Practicar solo</button>
+            <button className="btn big" disabled={busy} onClick={() => void doCreate(true)}>{mode === 'kumite' ? 'Torneo vs CPU' : 'Practicar solo'}</button>
           </div>
         </section>
       </div>

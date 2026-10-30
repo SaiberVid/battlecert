@@ -12,6 +12,7 @@
 
 - **Multijugador en directo, hasta 8 personas.** Entran con QR, enlace o un código de 6 caracteres. PIN opcional y expulsión.
 - **Dificultad a tu medida:** Rebujado, Escalera (de fácil a difícil) o solo un nivel.
+- **CERT KUMITE 🥋:** duelo 1 contra 1 de pixel art sobre una plataforma flotante. Cada acierto empuja al rival (con combos), si aciertan los dos chocan los golpes y nadie se mueve, y quien cae de la plataforma pierde. Torneo contra la CPU o combate online con un amigo, con 8 luchadores, efectos y sonido 16 bits sintetizado.
 - **5 modos:** Clásico (acierto + rapidez + racha), Turnos + robo, Relámpago, Supervivencia (3 vidas) y Apuesta (arriesga ×1, ×2 o ×3).
 - **Tú eliges el ritmo:** de 5 a 120 segundos por pregunta, 5–50 preguntas, filtrado por dominios.
 - **Se siente como un juego:** sonidos que suben de tono con la racha, vibración en el móvil, cuenta atrás, reacciones, podio y confeti, revancha con marcador de serie. Con botón de silencio y respeto a "reducir movimiento".

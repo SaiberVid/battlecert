@@ -251,3 +251,10 @@ Siguiente: galería comunitaria de packs en el repo (PR con validación automát
 - Mapa del examen con los pesos oficiales (`blueprint`); las partidas reparten las preguntas por dominio como el examen real.
 - Estilos de examen (Microsoft, AWS, Google Cloud, proveedores, universidad, oposición).
 - Modo manual con un prompt maestro para NotebookLM, con continuación por bloques.
+
+## 12. CERT KUMITE (v0.5, 30-oct-2026)
+
+- Modo `kumite`: tira y afloja sobre una plataforma. Acierto = empuje de 1 + 0,5 por combo (máx. 3); ambos aciertan = choque sin movimiento; ambos fallan = tambaleo y combos a cero; al borde, el defensor se agarra y recibe la mitad. Longitudes Corto/Normal/Épico calibradas por simulación (Normal: mediana ~24 preguntas entre jugadores igualados).
+- Solo: torneo contra los demás luchadores con CPU cada vez más precisa y rápida. Online: pelean los 2 primeros, el resto mira.
+- Arte: hojas de 11 poses generadas con IA y procesadas con `tools/kumite_assets.py` (recorte, alfa limpia, anclaje por los pies, PNG de paleta). Faltan las hojas de 01_taekwondo y 02_brawler.
+- Sonido: efectos y tema de batalla sintetizados en el navegador (canales cuadrada/triángulo/ruido), sin archivos ni licencias.

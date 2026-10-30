@@ -3,7 +3,11 @@ import { AnimatePresence, motion } from 'motion/react'
 import * as E from '../core/engine'
 import { REACTIONS } from '../core/sanitize'
 import type { PublicState } from '../core/types'
-import { applySettings, choose, joinUrl, kick, leave, myTurn, react, rematch, setBet, skip, startMatch } from '../session'
+import { applySettings, choose, joinUrl, kick, kumiteNext, leave, myTurn, react, rematch, setBet, setFighter, skip, startMatch } from '../session'
+import { Arena } from '../kumite/Arena'
+import { FighterPicker, Portrait } from '../kumite/Hud'
+import { ksfx } from '../kumite/audio'
+import { FIGHTERS, fighterById } from '../kumite/roster'
 import { useStore, S } from '../store'
 import type { Stage } from '../net/transport'
 import { sfx } from '../sound'
@@ -17,7 +21,7 @@ export function Room() {
   useSounds(P)
   if (!P) return <Connecting role={role} code={code} />
   if (P.phase === 'lobby') return <Lobby P={P} />
-  if (P.phase === 'end') return <End P={P} />
+  if (P.phase === 'end') return P.kumite ? <KumiteEnd P={P} /> : <End P={P} />
   return <Play P={P} />
 }
 
@@ -74,11 +78,14 @@ function useSounds(P: PublicState | null) {
     if (P.phase === 'lobby' && p.players !== undefined && P.players.length > p.players) sfx.join()
     if (P.phase !== p.phase || P.i !== p.i) {
       if (P.phase === 'steal') sfx.steal()
-      if (P.phase === 'reveal' && myPid) {
+      if (P.phase === 'reveal' && myPid && P.settings.mode !== 'kumite') {
         const a = P.ans[myPid]
         if (a && 'ok' in a) { if (a.ok) sfx.correct(P.sc[myPid]?.streak || 1); else sfx.wrong() }
       }
-      if (P.phase === 'end' && myPid) {
+      if (P.phase === 'end' && myPid && P.kumite) {
+        const won = P.kumite.winner !== null && P.kumite.fighters[P.kumite.winner] === myPid
+        setTimeout(() => (won ? ksfx.win : ksfx.lose)(), 1700)
+      } else if (P.phase === 'end' && myPid) {
         const st = E.standings(P)
         const won = st.length < 2 ? (st[0]?.ok || 0) / Math.max(1, st[0]?.n || 1) >= .7 : st[0]?.pid === myPid && st[0].pts !== st[1]?.pts
         if (won) sfx.fanfare(); else sfx.lose()
@@ -138,6 +145,7 @@ function Lobby({ P }: { P: PublicState }) {
           </div>
           {P.players.length < 2 && <p className="small muted">Esperando a que entre alguien…</p>}
         </section>
+        {P.settings.mode === 'kumite' && <LobbyFighters P={P} />}
       </div>
 
       <section className="panel" aria-labelledby="set-h">
@@ -150,6 +158,34 @@ function Lobby({ P }: { P: PublicState }) {
         </div>
       </section>
     </div>
+  )
+}
+
+function LobbyFighters({ P }: { P: PublicState }) {
+  const fighter = useStore((s) => s.fighter)
+  const myPid = useStore((s) => s.myPid)
+  const fighters = P.players.filter((p) => p.online).slice(0, 2)
+  return (
+    <section className="panel" aria-labelledby="kf-h">
+      <h2 id="kf-h">🥋 Elige tu luchador</h2>
+      <div className="kvs">
+        {[0, 1].map((i) => {
+          const p = fighters[i]
+          const f = fighterById(p?.fighter)
+          return (
+            <div key={i} className={'kvs-side' + (i ? ' r' : '')} style={{ ['--c' as string]: f.color }}>
+              {p ? <Portrait f={f} size={72} flip={i === 1} /> : <span className="kport empty" />}
+              <b>{p ? p.nick + (p.pid === myPid ? ' (tú)' : '') : 'Esperando rival…'}</b>
+              {p && <span className="small muted">{f.name}</span>}
+            </div>
+          )
+        })}
+        <span className="kvs-x" aria-hidden="true">VS</span>
+      </div>
+      {P.players.filter((p) => p.online).length > 2 && <p className="small muted">Pelean los 2 primeros jugadores; el resto mira el combate.</p>}
+      <FighterPicker value={fighter} onPick={setFighter} taken={P.players.map((p) => p.fighter ?? '')} />
+      <p className="small muted">{FIGHTERS.length} luchadores. Cada acierto empuja al rival; si aciertan los dos, chocan y nadie se mueve.</p>
+    </section>
   )
 }
 
@@ -199,7 +235,7 @@ function Play({ P }: { P: PublicState }) {
     return () => removeEventListener('keydown', on)
   }, [q, reveal, role])
 
-  if (P.phase === 'countdown') return <Countdown P={P} left={left} />
+  if (P.phase === 'countdown') return <>{mode === 'kumite' && <Arena P={P} />}<Countdown P={P} left={left} /></>
   if (!q) return null
   const total = steal ? E.STEAL_MS : P.settings.secs * 1000
   const activeIdx = P.players.findIndex((p) => p.pid === P.active)
@@ -209,13 +245,14 @@ function Play({ P }: { P: PublicState }) {
   const sc = myPid ? P.sc[myPid] : undefined
   const out = mode === 'survival' && sc?.out
 
+  const kumite = mode === 'kumite'
   return (
-    <div className="stage">
+    <div className={'stage' + (kumite ? ' kumite' : '')}>
       <div className="stack" style={{ gap: 12 }}>
         <div className="hud">
           <Ring left={left} total={reveal ? E.REVEAL_MS : total} calm={reveal} />
           <div className="meta">
-            <div className="row between small"><span className="label">Pregunta {P.i + 1}{mode === 'survival' ? '' : ' de ' + P.total}</span><span className="label" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '55%' }}>{q.domain}</span></div>
+            <div className="row between small"><span className="label">{kumite ? `Asalto ${P.i + 1}` : `Pregunta ${P.i + 1}`}{mode === 'survival' || kumite ? '' : ' de ' + P.total}</span><span className="label" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '55%' }}>{q.domain}</span></div>
             <div className="progress" aria-hidden="true"><i style={{ width: `${((P.i + (reveal ? 1 : 0)) / Math.max(1, P.total)) * 100}%` }} /></div>
             <div className="row small" style={{ gap: 8 }}>
               <span className="chip">{E.MODES[mode].name}</span>
@@ -264,10 +301,11 @@ function Play({ P }: { P: PublicState }) {
           })}
         </div>
 
+        {kumite && <Arena P={P} />}
         {!reveal && <Status P={P} canAnswer={canAnswer} out={!!out} />}
         {reveal && <Reveal P={P} left={left} />}
       </div>
-      <Board P={P} />
+      {!kumite && <Board P={P} />}
     </div>
   )
 }
@@ -355,7 +393,9 @@ function Board({ P }: { P: PublicState }) {
 function Countdown({ P, left }: { P: PublicState; left: number }) {
   const n = Math.ceil(left / 1000)
   const last = useRef(-1)
-  useEffect(() => { if (n !== last.current && n >= 1 && n <= 3) sfx.count(n); last.current = n }, [n])
+  const kumite = P.settings.mode === 'kumite'
+  useEffect(() => { if (n !== last.current && n >= 1 && n <= 3) (kumite ? ksfx.count : sfx.count)(n); last.current = n }, [n, kumite])
+  useEffect(() => () => { if (kumite) ksfx.count(0) }, [kumite])
   return (
     <div className="overlay" role="status" aria-live="assertive">
       <div className="stack" style={{ alignItems: 'center' }}>
@@ -369,7 +409,45 @@ function Countdown({ P, left }: { P: PublicState; left: number }) {
 }
 
 // ---------------------------------------------------------------- end
-function End({ P }: { P: PublicState }) {
+function KumiteEnd({ P }: { P: PublicState }) {
+  const role = useStore((s) => s.role)
+  const myPid = useStore((s) => s.myPid)
+  const tour = useStore((s) => s.tour)
+  const k = P.kumite!
+  const w = k.winner
+  const wp = w !== null ? P.players.find((p) => p.pid === k.fighters[w]) : undefined
+  const iWon = !!wp && wp.pid === myPid
+  const ko = k.last.ko !== undefined
+  const champion = role === 'solo' && tour && iWon && tour.stage >= tour.order.length - 1
+  return (
+    <div className="stack" style={{ gap: 16 }}>
+      <Arena P={P} />
+      <section className="panel" style={{ alignItems: 'center', textAlign: 'center' }}>
+        <span className="label">{ko ? 'K.O.' : 'Fin del combate'}{tour ? ` · Torneo ${Math.min(tour.stage + 1, tour.order.length)}/${tour.order.length}` : ''}</span>
+        <h1>{champion ? '🏆 ¡Campeón del torneo!' : !wp ? '¡Empate!' : iWon ? '¡Victoria!' : `${wp.nick} gana`}</h1>
+        <p className="muted">{ko ? (wp ? `${wp.nick} echa a su rival de la plataforma.` : '') : 'Se acabaron las preguntas: gana quien más terreno había ganado.'} Mejor racha: {k.best[0]} – {k.best[1]}.</p>
+        {tour && (
+          <div className="ladder" aria-label="Rivales del torneo">
+            {tour.order.map((id, i) => (
+              <span key={id} className={'rung' + (i < tour.stage || (i === tour.stage && iWon) ? ' done' : i === tour.stage ? ' now' : '')} title={fighterById(id).name}>
+                <Portrait f={fighterById(id)} size={40} />
+              </span>
+            ))}
+          </div>
+        )}
+        <div className="row" style={{ justifyContent: 'center' }}>
+          {role === 'solo' && tour && <button className="btn big accent" onClick={kumiteNext}>{champion ? 'Nuevo torneo' : iWon ? 'Siguiente rival →' : 'Reintentar'}</button>}
+          {role === 'host' && <button className="btn big accent" onClick={rematch}>Revancha</button>}
+          {role === 'guest' && <span className="muted small">El anfitrión puede lanzar la revancha.</span>}
+          <button className="btn" onClick={leave}>Salir</button>
+        </div>
+      </section>
+      <End P={P} compact />
+    </div>
+  )
+}
+
+function End({ P, compact = false }: { P: PublicState; compact?: boolean }) {
   const myPid = useStore((s) => s.myPid)
   const role = useStore((s) => s.role)
   const myLog = useStore((s) => s.myLog)
@@ -385,7 +463,7 @@ function End({ P }: { P: PublicState }) {
 
   return (
     <div className="stack" style={{ gap: 16 }}>
-      <Confetti fire={fire} />
+      {!compact && <><Confetti fire={fire} />
       <section className="panel" style={{ alignItems: 'center', textAlign: 'center' }}>
         <span className="label">Fin de la partida{P.round > 1 ? ` · ronda ${P.round}` : ''}</span>
         <h1>{solo ? (me && me.ok / Math.max(1, me.n) >= .7 ? '¡Buen trabajo!' : 'Sigue practicando') : tie ? '¡Empate!' : `${st[0].avatar} ${st[0].nick} gana`}</h1>
@@ -414,7 +492,7 @@ function End({ P }: { P: PublicState }) {
           <button className="btn" onClick={leave}>Salir</button>
         </div>
       </section>
-
+</>}
       <div className="grid2">
         <section className="panel">
           <h2>Clasificación</h2>

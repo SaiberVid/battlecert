@@ -3,7 +3,7 @@
 import { S } from './store'
 
 let ctx: AudioContext | null = null
-function ac(): AudioContext | null {
+export function ac(): AudioContext | null {
   if (!S().sound) return null
   try {
     ctx ??= new AudioContext()

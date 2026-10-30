@@ -6,11 +6,12 @@ export const MAX_MSG_BYTES = 4096 // guest → host
 export const MAX_STATE_BYTES = 256 * 1024 // host → guest
 
 // ---------- guest → host
-export const Hello = z.object({ t: z.literal('hello'), nick: z.string().max(60), avatar: z.string().max(16), token: z.string().regex(/^[a-z0-9]{8,40}$/), pin: z.string().max(8).optional() })
+export const Hello = z.object({ t: z.literal('hello'), nick: z.string().max(60), avatar: z.string().max(16), token: z.string().regex(/^[a-z0-9]{8,40}$/), pin: z.string().max(8).optional(), fighter: z.string().regex(/^[a-z0-9-]{1,20}$/).optional() })
 export const AnswerMsg = z.object({ t: z.literal('answer'), i: z.number().int().min(0).max(10000), ph: z.enum(['q', 'steal']), c: z.array(z.number().int().min(0).max(7)).max(8), ms: z.number().min(0).max(600000), bet: z.number().int().min(1).max(3).optional() })
 export const React_ = z.object({ t: z.literal('react'), e: z.enum(REACTIONS as [string, ...string[]]) })
 export const Pong = z.object({ t: z.literal('pong'), ts: z.number() })
-export const GuestMsg = z.discriminatedUnion('t', [Hello, AnswerMsg, React_, Pong])
+export const FighterMsg = z.object({ t: z.literal('fighter'), id: z.string().regex(/^[a-z0-9-]{1,20}$/) })
+export const GuestMsg = z.discriminatedUnion('t', [Hello, AnswerMsg, React_, Pong, FighterMsg])
 export type GuestMsg = z.infer<typeof GuestMsg>
 
 // ---------- host → guest (the host is trusted for game content, but shapes are still checked)
@@ -22,11 +23,16 @@ const AnswerPub = z.union([
 const ScorePub = z.object({ pts: z.number(), ok: z.number(), n: z.number(), ms: z.number(), streak: z.number(), best: z.number(), stl: z.number(), lives: z.number(), out: z.boolean(), dom: z.record(z.string(), z.tuple([z.number(), z.number()])) })
 export const PublicStateSchema = z.object({
   code: z.string().max(12),
-  settings: z.object({ mode: z.enum(['classic', 'turns', 'blitz', 'survival', 'wager']), n: z.number(), secs: z.number(), domains: z.array(Str).max(200), diff: z.enum(['mix', 'ladder', 'easy', 'medium', 'hard']).optional(), packId: z.string().max(80), packName: z.string().max(120) }),
-  players: z.array(z.object({ pid: z.string().max(20), nick: z.string().max(40), avatar: z.string().max(16), online: z.boolean() })).max(8),
+  settings: z.object({ mode: z.enum(['classic', 'turns', 'blitz', 'survival', 'wager', 'kumite']), n: z.number(), secs: z.number(), domains: z.array(Str).max(200), kLen: z.enum(['short', 'normal', 'epic']).optional(), diff: z.enum(['mix', 'ladder', 'easy', 'medium', 'hard']).optional(), packId: z.string().max(80), packName: z.string().max(120) }),
+  players: z.array(z.object({ pid: z.string().max(20), nick: z.string().max(40), avatar: z.string().max(16), online: z.boolean(), fighter: z.string().max(20).optional(), cpu: z.boolean().optional() })).max(8),
   i: z.number(), total: z.number(), phase: z.enum(['lobby', 'countdown', 'q', 'steal', 'reveal', 'end']), active: z.string().max(20).nullable(),
   ans: z.record(z.string().max(20), AnswerPub), sc: z.record(z.string().max(20), ScorePub), round: z.number(), series: z.record(z.string().max(40), z.number()), rem: z.number(),
   q: z.object({ id: z.string().max(80), domain: Str, stem: Str, context: Str.optional(), options: z.array(z.object({ k: z.number(), t: Str })).max(8), need: z.number(), difficulty: z.union([z.literal(1), z.literal(2), z.literal(3)]).optional(), answer: z.array(z.number()).optional(), explanation: Str.optional() }).optional(),
+  kumite: z.object({
+    edge: z.number(), c: z.number(), combo: z.tuple([z.number(), z.number()]), best: z.tuple([z.number(), z.number()]), winner: z.union([z.literal(0), z.literal(1), z.null()]),
+    fighters: z.tuple([z.string().max(20), z.string().max(20)]),
+    last: z.object({ n: z.number(), type: z.enum(['clash', 'hit', 'stumble', 'start']), by: z.union([z.literal(0), z.literal(1)]).optional(), attack: z.enum(['quick', 'strong', 'special']).optional(), push: z.number(), guard: z.boolean().optional(), faster: z.union([z.literal(0), z.literal(1)]).optional(), ko: z.union([z.literal(0), z.literal(1)]).optional() }),
+  }).optional(),
   review: z.array(z.object({ id: z.string().max(80), domain: Str, stem: Str, correct: z.array(Str) })).max(500).optional(),
 })
 export const HostMsg = z.discriminatedUnion('t', [

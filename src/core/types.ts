@@ -43,7 +43,7 @@ export interface Pack {
   questions: Question[]
 }
 
-export type Mode = 'classic' | 'turns' | 'blitz' | 'survival' | 'wager'
+export type Mode = 'classic' | 'turns' | 'blitz' | 'survival' | 'wager' | 'kumite'
 
 export interface MatchSettings {
   mode: Mode
@@ -51,6 +51,8 @@ export interface MatchSettings {
   secs: number
   domains: string[]
   diff?: DiffMode
+  /** CERT KUMITE platform length */
+  kLen?: 'short' | 'normal' | 'epic'
   packId: string
   packName: string
 }
@@ -60,6 +62,9 @@ export interface Player {
   nick: string
   avatar: string
   online: boolean
+  /** CERT KUMITE fighter id */
+  fighter?: string
+  cpu?: boolean
 }
 
 export interface Answer {
@@ -112,4 +117,5 @@ export interface PublicState {
     explanation?: string
   }
   review?: { id: string; domain: string; stem: string; correct: string[] }[]
+  kumite?: import('./kumite').KumiteState & { fighters: [string, string] }
 }

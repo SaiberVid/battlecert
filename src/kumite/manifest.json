@@ -1,0 +1,134 @@
+{
+ "poses": [
+  "idle1",
+  "idle2",
+  "walk1",
+  "walk2",
+  "quick",
+  "strong",
+  "special",
+  "air",
+  "hurt",
+  "ko",
+  "win"
+ ],
+ "cell": [
+  180,
+  180
+ ],
+ "fighters": [
+  {
+   "id": "karateka",
+   "num": 3,
+   "name": "Sora",
+   "color": "#3d7bff",
+   "foot": [
+    97.0,
+    175.0
+   ],
+   "height": 166
+  },
+  {
+   "id": "kungfu",
+   "num": 4,
+   "name": "Mei",
+   "color": "#ffc83d",
+   "foot": [
+    109.5,
+    176.0
+   ],
+   "height": 168
+  },
+  {
+   "id": "capoeira",
+   "num": 5,
+   "name": "Zaya",
+   "color": "#9be22d",
+   "foot": [
+    130.5,
+    176.0
+   ],
+   "height": 162
+  },
+  {
+   "id": "cyber",
+   "num": 6,
+   "name": "Vexa",
+   "color": "#ff3fa4",
+   "foot": [
+    103.5,
+    171.0
+   ],
+   "height": 166
+  },
+  {
+   "id": "sumo",
+   "num": 7,
+   "name": "Gonzo",
+   "color": "#f2f2f2",
+   "foot": [
+    111.0,
+    168.0
+   ],
+   "height": 150
+  },
+  {
+   "id": "punk",
+   "num": 8,
+   "name": "Riot",
+   "color": "#7dff3a",
+   "foot": [
+    103.0,
+    178.0
+   ],
+   "height": 174
+  },
+  {
+   "id": "mecha",
+   "num": 9,
+   "name": "Unit-09",
+   "color": "#ff9b2a",
+   "foot": [
+    94.5,
+    175.0
+   ],
+   "height": 160
+  },
+  {
+   "id": "luchador",
+   "num": 10,
+   "name": "El Fénix",
+   "color": "#ffb800",
+   "foot": [
+    119.0,
+    176.0
+   ],
+   "height": 154
+  }
+ ],
+ "portrait": 160,
+ "fx": {
+  "cell": [
+   160,
+   160
+  ],
+  "names": [
+   "spark",
+   "bigspark",
+   "clash",
+   "dust",
+   "dizzy",
+   "flame",
+   "fall",
+   "win"
+  ]
+ },
+ "platform": {
+  "size": [
+   1086,
+   362
+  ],
+  "top": 50
+ },
+ "floor": 72
+}

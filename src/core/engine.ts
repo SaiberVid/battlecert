@@ -2,6 +2,7 @@
 // host broadcasts, so they never hold the pack or the answers before a reveal.
 import type { Answer, DiffMode, MatchSettings, Mode, Pack, Phase, Player, PublicState, Question, Score } from './types'
 import { dict } from './sanitize'
+import { decide, newKumite, resolve, type KumiteState } from './kumite'
 
 export const STEAL_MS = 10_000
 export const REVEAL_MS = 8_000
@@ -14,6 +15,7 @@ export const MODES: Record<Mode, { name: string; desc: string; defaultSecs: numb
   blitz: { name: 'Relámpago', desc: 'Pocos segundos; la rapidez vale el doble.', defaultSecs: 8 },
   survival: { name: 'Supervivencia', desc: '3 vidas. Fallar o no responder quita una. Gana quien quede.', defaultSecs: 20 },
   wager: { name: 'Apuesta', desc: 'Apuesta 1, 2 o 3 a tu respuesta: ganas o pierdes 100 × apuesta.', defaultSecs: 30 },
+  kumite: { name: 'CERT KUMITE', desc: '1 contra 1 en una plataforma: cada acierto empuja al rival. Échalo y ganas.', defaultSecs: 20 },
 }
 
 export interface HostPlayer extends Player { label: string; token: string | null }
@@ -35,7 +37,12 @@ export interface Match {
   qStart: number
   /** Scores when the current question (or steal) opened: shown until the reveal, so nothing leaks. */
   before: Record<string, Score>
+  /** CERT KUMITE: the fight and its two fighters (other players watch) */
+  k?: KumiteState
+  kf?: [string, string]
 }
+
+export const KUMITE_REVEAL_MS = 6_000
 
 export function rng(seed: number): () => number {
   let a = seed >>> 0
@@ -105,16 +112,17 @@ export function newMatch(code: string, s: MatchSettings, prev?: Match): Match {
 }
 
 /** Adds a player or gives a returning player (same alias + same device token) their seat back. */
-export function addPlayer(m: Match, nick: string, avatar: string, label: string, token: string | null): HostPlayer | null {
+export function addPlayer(m: Match, nick: string, avatar: string, label: string, token: string | null, fighter?: string): HostPlayer | null {
   const ex = m.players.find((p) => p.nick.toLowerCase() === nick.toLowerCase())
   if (ex) {
     if (ex.online && ex.label !== label && !(token && ex.token === token)) return null
     ex.label = label; ex.online = true; ex.avatar = avatar || ex.avatar
+    if (fighter) ex.fighter = fighter
     if (token) ex.token = token
     return ex
   }
   if (m.players.length >= 8) return null
-  const p: HostPlayer = { pid: 'p' + (m.players.length + 1) + Math.random().toString(36).slice(2, 6), nick, avatar, label, online: true, token }
+  const p: HostPlayer = { pid: 'p' + (m.players.length + 1) + Math.random().toString(36).slice(2, 6), nick, avatar, label, online: true, token, ...(fighter ? { fighter } : {}), ...(label === 'cpu' ? { cpu: true } : {}) }
   m.players.push(p)
   if (m.phase !== 'lobby') m.sc[p.pid] = { ...blank(), out: m.s.mode === 'survival' }
   return p
@@ -128,13 +136,18 @@ function snapshot(m: Match) {
 const alive = (m: Match) => m.players.filter((p) => p.online && !m.sc[p.pid]?.out)
 
 export function start(m: Match, pack: Pack, seed: number, now: number, exclude: string[] = []): Match {
-  const max = m.s.mode === 'survival' ? Math.max(m.s.n, 50) : m.s.n
+  const max = m.s.mode === 'survival' ? Math.max(m.s.n, 50) : m.s.mode === 'kumite' ? Math.max(m.s.n, 80) : m.s.n
   m.qids = pick(pack, max, seed, m.s.domains, exclude, m.s.diff ?? 'mix')
   const rand = rng(seed ^ 0x9e3779b9)
   m.order = dict()
   for (const id of m.qids) m.order[id] = shuffle(qOf(pack, id).options.map((_, k) => k), rand)
   m.sc = dict()
   for (const p of m.players) m.sc[p.pid] = blank()
+  if (m.s.mode === 'kumite') {
+    const fighters = m.players.filter((p) => p.online).slice(0, 2)
+    m.k = newKumite(m.s.kLen ?? 'normal')
+    m.kf = fighters.length === 2 ? [fighters[0].pid, fighters[1].pid] : undefined
+  } else { m.k = undefined; m.kf = undefined }
   m.round += 1
   m.i = -1
   m.phase = 'countdown'
@@ -147,7 +160,11 @@ function nextQuestion(m: Match, now: number): void {
   m.ans = dict()
   const left = alive(m)
   const survivalOver = m.s.mode === 'survival' && (left.length === 0 || (m.players.length > 1 && left.length <= 1))
-  if (m.i >= m.qids.length || survivalOver) { m.phase = 'end'; m.deadline = 0; m.active = null; return }
+  const kumiteOver = m.s.mode === 'kumite' && (!m.kf || m.k?.winner != null)
+  if (m.i >= m.qids.length || survivalOver || kumiteOver) {
+    if (m.k && m.k.winner == null) m.k = { ...m.k, winner: decide(m.k) }
+    m.phase = 'end'; m.deadline = 0; m.active = null; return
+  }
   m.phase = 'q'
   snapshot(m)
   m.qStart = now
@@ -156,6 +173,7 @@ function nextQuestion(m: Match, now: number): void {
 }
 
 export function eligible(m: Match): string[] {
+  if (m.phase === 'q' && m.s.mode === 'kumite') return (m.kf ?? []).filter((pid) => m.players.some((p) => p.pid === pid && p.online))
   if (m.phase === 'q') return m.s.mode === 'turns' && m.active ? [m.active] : alive(m).map((p) => p.pid)
   if (m.phase === 'steal' && m.active) return [m.active]
   return []
@@ -218,14 +236,23 @@ export function tick(m: Match, pack: Pack, now: number): boolean {
       return true
     }
   }
+  if (m.s.mode === 'kumite' && m.k && m.kf) {
+    const a0 = m.ans[m.kf[0]], a1 = m.ans[m.kf[1]]
+    m.k = resolve(m.k, [!!a0?.ok, !!a1?.ok], [a0 ? a0.ms : null, a1 ? a1.ms : null])
+  }
   m.phase = 'reveal'
-  m.deadline = now + REVEAL_MS
+  m.deadline = now + (m.s.mode === 'kumite' ? KUMITE_REVEAL_MS : REVEAL_MS)
   return true
 }
 
 export function skipReveal(m: Match) { if (m.phase === 'reveal') m.deadline = 0 }
 
 export function standings(m: Match | PublicState) {
+  const k = 'k' in m ? (m.k && m.kf ? { ...m.k, fighters: m.kf } : undefined) : (m as PublicState).kumite
+  if (k && k.winner != null) {
+    const w = k.fighters[k.winner]
+    return m.players.map((p) => ({ ...p, ...(m.sc[p.pid] || blank()) })).sort((a, b) => Number(b.pid === w) - Number(a.pid === w) || b.pts - a.pts)
+  }
   return m.players
     .map((p) => ({ ...p, ...(m.sc[p.pid] || blank()) }))
     .sort((a, b) => ('s' in m ? m.s : m.settings).mode === 'survival'
@@ -237,7 +264,7 @@ export function standings(m: Match | PublicState) {
 export function finish(m: Match) {
   const st = standings(m)
   if (st.length > 1) {
-    const tie = m.s.mode === 'survival' ? !st[0].out === !st[1].out && st[0].lives === st[1].lives && st[0].pts === st[1].pts : st[0].pts === st[1].pts
+    const tie = m.s.mode === 'kumite' ? m.k?.winner == null : m.s.mode === 'survival' ? !st[0].out === !st[1].out && st[0].lives === st[1].lives && st[0].pts === st[1].pts : st[0].pts === st[1].pts
     if (!tie) { const k = st[0].nick.toLowerCase(); m.series[k] = (m.series[k] || 0) + 1 }
   }
 }
@@ -255,9 +282,10 @@ export function publicState(m: Match, pack: Pack, now: number): PublicState {
   }
   const out: PublicState = {
     code: m.code, settings: m.s, i: m.i, total: m.qids.length, phase: m.phase, active: m.active,
-    players: m.players.map((p) => ({ pid: p.pid, nick: p.nick, avatar: p.avatar, online: p.online })),
+    players: m.players.map((p) => ({ pid: p.pid, nick: p.nick, avatar: p.avatar, online: p.online, ...(p.fighter ? { fighter: p.fighter } : {}), ...(p.cpu ? { cpu: true } : {}) })),
     ans, sc, round: m.round, series: m.series, rem: m.deadline ? Math.max(0, m.deadline - now) : 0,
   }
+  if (m.k && m.kf) out.kumite = { ...m.k, fighters: m.kf }
   if (m.i >= 0 && m.i < m.qids.length && m.phase !== 'end') {
     const q = qOf(pack, m.qids[m.i])
     out.q = { id: q.id, domain: q.domain, stem: q.stem, context: q.context, options: (m.order[q.id] || q.options.map((_, k) => k)).map((k) => ({ k, t: q.options[k] })), need: q.answer.length, difficulty: q.difficulty }

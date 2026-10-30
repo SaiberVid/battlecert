@@ -9,6 +9,8 @@ import { hostRoom, joinRoom, type GuestHandle, type HostHandle } from './net/tra
 import { newSecret } from './net/relay'
 import { S, blankLocal, storage, useStore, type Result } from './store'
 import { z } from 'zod'
+import { cpuAnswer, cpuFor } from './core/kumite'
+import { FIGHTERS, fighterById, isFighter } from './kumite/roster'
 
 const HOST_LABEL = 'host'
 let M: Match | null = null
@@ -55,8 +57,14 @@ export async function createRoom(solo: boolean) {
   const pin = !solo && s.usePin ? randomPin() : null
   const secret = solo ? null : newSecret()
   M = E.newMatch(code, { ...s.settings, packName: pack.name })
-  const me = E.addPlayer(M, nick, s.avatar, HOST_LABEL, null)!
+  const me = E.addPlayer(M, nick, s.avatar, HOST_LABEL, null, s.fighter)!
   labelToPid[HOST_LABEL] = me.pid
+  if (solo && M.s.mode === 'kumite') {
+    // solo KUMITE = tournament against every other fighter, easiest first
+    const order = FIGHTERS.map((f) => f.id).filter((id) => id !== s.fighter).sort(() => Math.random() - 0.5)
+    useStore.setState({ tour: { order, stage: 0 } })
+    addCpu(order[0])
+  } else useStore.setState({ tour: null })
   useStore.setState({ role: solo ? 'solo' : 'host', code, pin, secret, net: null, joinError: null, myPid: me.pid, view: 'room', msg: null, myLog: {}, P: null })
   if (solo) return startMatch()
   for (let attempt = 0; attempt < 3; attempt++) {
@@ -94,7 +102,7 @@ function onGuestMessage(label: string, data: unknown) {
     if (!nick) return hostNet.send(label, { t: 'reject', reason: 'Alias no válido (2–20 caracteres).' })
     if (banned.has('nick:' + nick.toLowerCase())) return hostNet.send(label, { t: 'reject', reason: 'El anfitrión te ha expulsado de esta sala.' })
     const avatar = AVATARS.includes(m.avatar) ? m.avatar : AVATARS[0]
-    const p = E.addPlayer(M, nick, avatar, label, m.token)
+    const p = E.addPlayer(M, nick, avatar, label, m.token, isFighter(m.fighter) ? m.fighter : undefined)
     if (!p) return hostNet.send(label, { t: 'reject', reason: M.players.length >= 8 ? 'La sala está llena (máximo 8).' : 'Ese alias ya está jugando. Elige otro.' })
     labelToPid[label] = p.pid
     hostNet.send(label, { t: 'welcome', pid: p.pid })
@@ -110,6 +118,9 @@ function onGuestMessage(label: string, data: unknown) {
     const hostMs = now - opened - (rtt[label] ?? 150)
     const ms = Math.max(m.ms, hostMs)
     if (E.answer(M, hostPack(), pid, m.c, ms, now, m.bet)) { E.tick(M, hostPack(), now); afterChange() }
+  } else if (m.t === 'fighter') {
+    const p = M.players.find((x) => x.pid === pid)
+    if (p && isFighter(m.id) && M.phase === 'lobby') { p.fighter = m.id; publish() }
   } else if (m.t === 'react') {
     if ((lastReact[pid] ?? 0) > now - 800) return
     lastReact[pid] = now
@@ -156,7 +167,7 @@ export function rematch() {
   if (!M) return
   const old = M
   M = E.newMatch(old.code, old.s, old)
-  M.players = old.players.filter((p) => p.online)
+  M.players = old.players.filter((p) => p.online || p.label === 'cpu')
   startMatch()
 }
 
@@ -188,7 +199,57 @@ function publish() {
   applyState(P)
 }
 
+// ---------- CPU fighter (solo KUMITE)
+let cpuPlan: { i: number; at: number; ok: boolean; ms: number } | null = null
+function addCpu(fid: string) {
+  if (!M) return
+  M.players = M.players.filter((p) => p.label !== 'cpu')
+  const f = fighterById(fid)
+  E.addPlayer(M, f.name, '🤖', 'cpu', null, f.id)
+}
+function cpuTick(now: number) {
+  if (!M || M.s.mode !== 'kumite' || M.phase !== 'q') return
+  const cpu = M.players.find((p) => p.label === 'cpu')
+  if (!cpu || M.ans[cpu.pid]) return
+  if (!cpuPlan || cpuPlan.i !== M.i) {
+    const tour = S().tour
+    const brain = cpuFor(tour?.stage ?? 0, tour?.order.length ?? 1, M.s.secs)
+    const r = cpuAnswer(brain, Math.random)
+    cpuPlan = { i: M.i, at: M.qStart + r.ms, ok: r.ok, ms: r.ms }
+  }
+  if (now < cpuPlan.at) return
+  const q = hostPack().questions.find((x) => x.id === M!.qids[M!.i])!
+  const wrong = q.options.map((_, k) => k).filter((k) => !q.answer.includes(k))
+  const choice = cpuPlan.ok || !wrong.length ? q.answer : [wrong[Math.floor(Math.random() * wrong.length)]]
+  if (E.answer(M, hostPack(), cpu.pid, choice, cpuPlan.ms, now)) { E.tick(M, hostPack(), now); afterChange() }
+}
+
+/** After a solo KUMITE fight: next rival if you won, same rival again if you lost. */
+export function kumiteNext() {
+  const tour = S().tour
+  if (!M || !tour) return rematch()
+  const P = E.publicState(M, hostPack(), Date.now())
+  const won = P.kumite?.winner != null && P.kumite.fighters[P.kumite.winner] === S().myPid
+  const stage = won ? tour.stage + 1 : tour.stage
+  if (stage >= tour.order.length) { useStore.setState({ tour: { ...tour, stage: 0 } }); addCpu(tour.order[0]) }
+  else { useStore.setState({ tour: { ...tour, stage } }); addCpu(tour.order[stage]) }
+  const old = M
+  M = E.newMatch(old.code, old.s, old)
+  M.players = old.players
+  startMatch()
+}
+
+export function setFighter(id: string) {
+  if (!isFighter(id)) return
+  useStore.setState({ fighter: id })
+  storage.set('fighter', id)
+  const { role, myPid } = S()
+  if (role === 'guest') guestNet?.send({ t: 'fighter', id })
+  else if (M && M.phase === 'lobby' && myPid) { const p = M.players.find((x) => x.pid === myPid); if (p) { p.fighter = id; publish() } }
+}
+
 function tickHost() {
+  cpuTick(Date.now())
   if (!M) return
   if (E.tick(M, hostPack(), Date.now())) afterChange()
   else if (hostNet && Date.now() - lastCast > 1500) publish()
@@ -214,7 +275,7 @@ export async function join(code: string, pin: string | null, secret: string | nu
   }
   if (S().role !== 'guest' || S().code !== code) { guestNet.close(); guestNet = null; return }
   useStore.setState({ via: guestNet.via })
-  guestNet.send({ t: 'hello', nick, avatar: s.avatar, token: deviceToken(), pin: pin ?? undefined })
+  guestNet.send({ t: 'hello', nick, avatar: s.avatar, token: deviceToken(), pin: pin ?? undefined, fighter: s.fighter })
   history.replaceState(null, '', location.pathname + hashFor(code, pin, secret))
 }
 
@@ -242,7 +303,7 @@ function onClosed() {
     try {
       guestNet = await joinRoom(code, secret, { message: onHostMessage, closed: () => { reconnecting = false; onClosed() } })
       useStore.setState({ via: guestNet.via })
-      guestNet.send({ t: 'hello', nick: cleanNick(S().nick), avatar: S().avatar, token: deviceToken(), pin: pin ?? undefined })
+      guestNet.send({ t: 'hello', nick: cleanNick(S().nick), avatar: S().avatar, token: deviceToken(), pin: pin ?? undefined, fighter: S().fighter })
       reconnecting = false
       S().say('Reconectado.', 'ok')
     } catch {

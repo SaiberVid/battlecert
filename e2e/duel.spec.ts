@@ -394,3 +394,58 @@ test('manual mode: master prompt and pasting several chat answers', async ({ con
   await expect(p.getByText('📥 1 de tus fuentes')).toBeVisible()
   await expect(p.getByText('✨ 1 nuevas')).toBeVisible()
 })
+
+test.describe('CERT KUMITE', () => {
+  test('tournament vs CPU: choose a fighter, fight, lose by ring-out and retry', async ({ context }) => {
+    // CPU always right and quick: you get pushed off the short platform in a few rounds
+    await context.addInitScript(() => { Math.random = () => 0 })
+    const p = await open(context)
+    await profile(p, 'David')
+    await p.locator('.mode', { hasText: 'CERT KUMITE' }).click()
+    await p.getByRole('group', { name: 'Plataforma' }).getByRole('button', { name: 'Corto' }).click()
+    await p.locator('.kpick-b', { hasText: 'Vexa' }).click()
+    await p.getByRole('button', { name: 'Torneo vs CPU' }).click()
+    await expect(p.locator('canvas.kstage')).toBeVisible({ timeout: 10_000 })
+    await expect(p.locator('.khud')).toContainText('David')
+    await expect(p.locator('.khud')).toContainText('CPU')
+    for (let i = 0; i < 12; i++) {
+      if (await p.getByRole('heading', { name: /gana|Victoria|Empate/ }).count()) break
+      const opt = p.locator('.opt:not([disabled])').last()
+      await opt.waitFor({ timeout: 15_000 }).catch(() => {})
+      await opt.click().catch(() => {})
+      await p.locator('.result').waitFor({ timeout: 15_000 }).catch(() => {})
+      const next = p.getByRole('button', { name: 'Siguiente →' })
+      if (await next.count()) await next.click().catch(() => {})
+    }
+    await expect(p.getByRole('heading', { name: /gana/ })).toBeVisible({ timeout: 20_000 })
+    await expect(p.getByText('K.O.', { exact: false }).first()).toBeVisible()
+    await expect(p.locator('.ladder .rung')).toHaveCount(7) // the 7 other fighters
+    await p.getByRole('button', { name: 'Reintentar' }).click()
+    await expect(p.locator('.opt:not([disabled])').first()).toBeVisible({ timeout: 10_000 })
+    await expect(p.locator('.ladder')).toHaveCount(0)
+  })
+
+  test('two players online pick fighters and clash when both are right', async ({ context }) => {
+    const h = await open(context)
+    await profile(h, 'Host')
+    await h.locator('.mode', { hasText: 'CERT KUMITE' }).click()
+    await h.locator('.kpick-b', { hasText: 'Gonzo' }).click()
+    await h.getByRole('button', { name: 'Crear sala' }).click()
+    const code = (await h.locator('.code').first().textContent())!.trim()
+    const g = await open(context)
+    await joinByCode(g, 'Guest', code)
+    await expect(h.locator('.kvs')).toContainText('Guest')
+    await g.locator('.kpick-b', { hasText: 'Riot' }).click()
+    await expect(h.locator('.kvs')).toContainText('Riot')
+    await expect(h.locator('.kvs')).toContainText('Gonzo')
+    await h.getByRole('button', { name: /Empezar con 2/ }).click()
+    for (const p of [h, g]) await expect(p.locator('.opt:not([disabled])').first()).toBeVisible({ timeout: 10_000 })
+    await expect(g.locator('.khud')).toContainText('Host')
+    // both pick the same option: both right (clash) or both wrong (stumble) — nobody moves either way
+    await h.locator('.opt').first().click()
+    await g.locator('.opt').first().click()
+    await expect(g.locator('.result')).toBeVisible()
+    const before = await g.locator('.kmeter .mark').getAttribute('style')
+    expect(before).toContain('left: 50%')
+  })
+})

@@ -9,7 +9,7 @@
 // The same instructions are available as one "master prompt" for NotebookLM or any chat.
 import { cleanBlueprint, makePack, parseDifficulty, type ImportResult } from '../core/packs'
 import type { Question } from '../core/types'
-import { generateJson, pickModel, AiError, type Part } from './gemini'
+import { AiError, Gemini, listModels, type Part } from './gemini'
 
 export type Mix = [number, number, number] // % easy, medium, hard
 export const MIXES: { id: string; name: string; mix: Mix }[] = [
@@ -69,13 +69,21 @@ export const QUESTION_SHAPE = `{"concept": "...", "domain": "...", "difficulty":
 
 // ---------------------------------------------------------------- prompts
 
-export function readPrompt(src: Source): string {
-  const what = src.kind === 'youtube' ? 'este vídeo' : `esta página: ${src.kind === 'url' ? src.url : ''}`
-  return `Lee ${what} y devuelve su contenido útil para estudiar, sin resumir de más:
-- TODAS las preguntas tipo test que aparezcan, copiadas completas: enunciado, opciones y la respuesta que marque (si la marca) y su explicación (si la da).
-- Los datos, definiciones, pasos y explicaciones importantes.
-- Si es una guía oficial de examen, la lista de dominios con su porcentaje.
-Devuelve: {"title": "...", "text": "todo lo anterior como texto"}`
+export function readPrompt(urls: string[], video: boolean, from = 0, domains: string[] = []): string {
+  const what = video ? 'el vídeo adjunto' : `estas páginas:\n${urls.map((u, i) => `[${i}] ${u}`).join('\n')}`
+  return `Lee ${what}.
+1. "questions": las preguntas tipo test que aparezcan${from ? `, a partir de la nº ${from + 1}` : ''} (hasta 40), en orden y sin repetir. Para cada una:
+   - "src": ${video ? '0' : 'el número [n] de la página donde está'}.
+   - Enunciado y opciones COMPLETOS y en su idioma original; caso, código o configuración en "context".
+   - "sourceAnswer": índices (desde 0) de la respuesta que marca la fuente (en la página o en sus comentarios más votados), o null.
+   - "answer": la respuesta correcta según TU razonamiento experto y la documentación oficial; puede no coincidir con la fuente.
+   - ${EXPLAIN}
+   - "domain"${domains.length ? ` (uno de: ${domains.join(' | ')})` : ''}, "concept", "difficulty" 1–3.
+   - Preguntas de ordenar o arrastrar: conviértelas en opción única. Si dependen de una imagen que no ves, sáltalas y súmalas en "skipped".
+2. "notes": por cada ${video ? 'vídeo' : 'página'}, los datos, definiciones y pasos importantes para estudiar (sin las preguntas), y si es una guía oficial de examen, sus dominios con el porcentaje.
+3. "more": true si quedan más preguntas después de estas 40.
+Si una página no se puede abrir, pon su nota como "NO DISPONIBLE".
+Devuelve: {"questions": [{"src": 0, "stem": "...", "context": "", "options": ["..."], "sourceAnswer": [0], "answer": [0], "explanation": "...", "domain": "...", "concept": "...", "difficulty": 2}], "notes": [{"src": 0, "title": "...", "text": "..."}], "skipped": 0, "more": false}`
 }
 
 export function mapPrompt(subject: string, target: number, lang: 'es' | 'en', style: string): string {
@@ -217,129 +225,187 @@ function asExamples(qs: Record<string, unknown>[]): string {
   }).join('\n\n')
 }
 
-export async function generatePack(key: string, input: GenInput, onProgress: (p: Progress) => void, signal?: AbortSignal): Promise<GenResult> {
+/** Everything done so far, so a run interrupted by the daily quota can continue later. */
+export interface Checkpoint {
+  v: 1
+  at: number
+  input: Omit<GenInput, 'sources'>
+  sources: Source[]
+  textParts: Part[] | null // files and pasted text, ready to send
+  notes: Part[] // study notes taken from links and videos
+  readQuestions: Record<string, unknown>[] // questions found while reading links/videos
+  readSkipped: number
+  map: { concepts: RawConcept[]; blueprint?: { domain: string; weight: number }[]; style: string; expected: number } | null
+  extract: { from: number; done: boolean; raw: Record<string, unknown>[]; skipped: number }
+  gen: { batch: number; done: boolean; items: Record<string, unknown>[] }
+  verified: boolean
+  bad: string[]
+  targetId?: string
+}
+
+export function newCheckpoint(input: GenInput): Checkpoint {
+  const { sources, ...rest } = input
+  return { v: 1, at: Date.now(), input: rest, sources, textParts: null, notes: [], readQuestions: [], readSkipped: 0, map: null, extract: { from: 0, done: !input.extract, raw: [], skipped: 0 }, gen: { batch: 0, done: input.count === 0, items: [] }, verified: !input.verify || input.count === 0, bad: [] }
+}
+
+/** Builds the pack from whatever the checkpoint holds (also used to save partial work). */
+export function packFromCheckpoint(cp: Checkpoint, model = ''): GenResult {
+  const seen = new Set<string>()
+  let corrected = 0
+  const fromSources = [...cp.readQuestions, ...cp.extract.raw].filter((q) => {
+    const k = normStem(String(q.stem ?? ''))
+    if (!k || seen.has(k)) return false
+    seen.add(k)
+    return true
+  }).map((q) => {
+    const ans = Array.isArray(q.answer) ? q.answer.map(Number) : []
+    if (Array.isArray(q.sourceAnswer) && q.sourceAnswer.length && ans.length && !sameAnswer(q.sourceAnswer, ans) && !String(q.explanation ?? '').startsWith('⚠️')) {
+      corrected++
+      const opts = Array.isArray(q.options) ? q.options.map(String) : []
+      const was = (q.sourceAnswer as unknown[]).map((i) => opts[Number(i)]).filter(Boolean).join(' + ')
+      return { ...q, origin: 'source', explanation: `⚠️ La fuente marcaba «${was}» como correcta, pero no lo es. ${String(q.explanation ?? '')}` }
+    }
+    return { ...q, origin: 'source' }
+  })
+  const fresh = cp.gen.items.filter((q) => { const k = normStem(String(q.stem ?? '')); if (!k || seen.has(k)) return false; seen.add(k); return true })
+  const all = [...fromSources.map((q, i) => ({ ...q, id: 's' + i })), ...fresh.map((q, i) => ({ ...q, origin: 'ai', id: 'g' + i }))]
+    .filter((q) => !cp.bad.includes(String(q.id)))
+    .map((q) => ({ ...q, difficulty: parseDifficulty((q as Record<string, unknown>).difficulty) }))
+  const concepts = (cp.map?.concepts ?? []).map((c) => ({ ...c, summary: [c.summary, ...(c.facts ?? []).map((f) => '• ' + f)].filter(Boolean).join('\n') }))
+  const r = makePack({ name: cp.input.subject, lang: cp.input.lang, source: `Creado con IA${model ? ` (${model})` : ''} a partir de las fuentes del usuario`, license: 'Uso personal', concepts, blueprint: cp.map?.blueprint }, all as never)
+  return { ...r, dropped: cp.bad.length, corrected, extracted: fromSources.length, skipped: cp.readSkipped + cp.extract.skipped, model }
+}
+
+export async function generatePack(key: string, input: GenInput, onProgress: (p: Progress) => void, signal?: AbortSignal, opts: { resume?: Checkpoint; save?(cp: Checkpoint): void; onModel?(m: string, reason: 'start' | 'switch'): void } = {}): Promise<GenResult> {
+  const cp = opts.resume ?? newCheckpoint(input)
+  const save = () => { cp.at = Date.now(); opts.save?.(cp) }
   const say = (step: Step, done: number, total: number) => onProgress({ step, done, total })
-  const wait = (step: Step, done: number, total: number) => (s: number) => onProgress({ step, done, total, note: `Límite gratuito por minuto alcanzado: esperando ${s} s…` })
+  const wait = (step: Step, done: number, total: number) => (s: number) => onProgress({ step, done, total, note: `Límite gratuito por minuto: esperando ${s} s…` })
   say('model', 0, 1)
-  const model = await pickModel(key, signal)
+  const ai = new Gemini(key, await listModels(key, signal))
+  ai.onModel = (m, reason) => { opts.onModel?.(m, reason); if (reason === 'switch') onProgress({ step: 'model', done: 0, total: 1, note: `Cuota diaria agotada en un modelo; sigo con ${m}.` }) }
+  opts.onModel?.(ai.model, 'start')
+  const inp = { ...cp.input, sources: cp.sources }
 
-  // 1. links and videos → text
-  const parts: Part[] = []
-  const remote = input.sources.filter((s) => s.kind === 'url' || s.kind === 'youtube')
-  let r = 0
-  for (const s of input.sources) {
-    if (s.kind === 'file') parts.push(s.part)
-    else if (s.kind === 'text') parts.push({ text: `--- ${s.label} ---\n${s.text}` })
-    else {
-      say('read', r, remote.length)
-      const ask: Part[] = s.kind === 'youtube' ? [{ file_data: { file_uri: s.url } }, { text: readPrompt(s) }] : [{ text: readPrompt(s) }]
-      try {
-        const d = (await generateJson(key, model, SYSTEM, ask, { signal, temperature: 0.1, readUrls: s.kind === 'url', onWait: wait('read', r, remote.length) })) as { title?: string; text?: string }
-        if (d.text) parts.push({ text: `--- ${d.title || s.label} (${s.url}) ---\n${String(d.text)}` })
-      } catch (e) {
-        if ((e as AiError).code === 'aborted' || (e as AiError).code === 'key') throw e
-        // one unreadable link should not ruin the whole run
+  try {
+    // 1. links (3 per request) and videos (1 per request): questions + study notes in the same call
+    if (!cp.textParts) {
+      const parts: Part[] = []
+      for (const s of cp.sources) {
+        if (s.kind === 'file') parts.push(s.part)
+        else if (s.kind === 'text') parts.push({ text: `--- ${s.label} ---\n${s.text}` })
       }
-      r++
-    }
-  }
-  if (!parts.length) throw new AiError('format', 'No se pudo leer ninguna fuente. Si es una web que pide registro o bloquea robots, guárdala como PDF o copia su texto.')
-
-  // 2. map of the exam
-  say('map', 0, 1)
-  const mp = (await generateJson(key, model, SYSTEM, [...parts, { text: mapPrompt(input.subject, input.count, input.lang, input.style) }], { signal, temperature: 0.2, onWait: wait('map', 0, 1) })) as { blueprint?: unknown; concepts?: RawConcept[]; style?: string; questionsInSources?: number }
-  const concepts = (mp.concepts ?? []).filter((c) => c && typeof c.name === 'string' && c.name.trim()).slice(0, 60)
-  const blueprint = cleanBlueprint(mp.blueprint)
-  const style = [STYLES[input.style]?.text, typeof mp.style === 'string' ? mp.style : ''].filter(Boolean).join(' ')
-  const domains = blueprint?.map((b) => b.domain) ?? [...new Set(concepts.map((c) => c.domain).filter(Boolean) as string[])]
-  say('map', 1, 1)
-
-  // 3. extract every question already in the sources
-  const raw: Record<string, unknown>[] = []
-  const seen = new Set((input.avoid ?? []).map(normStem))
-  let corrected = 0, skipped = 0, extracted = 0
-  if (input.extract) {
-    const expected = Math.max(0, Number(mp.questionsInSources) || 0)
-    const PAGE = 25
-    let from = 0
-    for (let round = 0; round < 40; round++) {
-      say('extract', extracted, Math.max(expected, extracted))
-      const d = (await generateJson(key, model, SYSTEM, [...parts, { text: extractPrompt(from, PAGE, domains, concepts.map((c) => c.name)) }], { signal, temperature: 0.1, onWait: wait('extract', extracted, expected) })) as { questions?: Record<string, unknown>[]; skipped?: number; more?: boolean }
-      const qs = (d.questions ?? []).filter((q) => q && typeof q === 'object' && typeof q.stem === 'string')
-      skipped += Math.max(0, Number(d.skipped) || 0)
-      let fresh = 0
-      for (const q of qs) {
-        const k = normStem(String(q.stem))
-        if (seen.has(k)) continue
-        seen.add(k)
-        fresh++
-        const ans = Array.isArray(q.answer) ? q.answer.map(Number) : []
-        if (Array.isArray(q.sourceAnswer) && q.sourceAnswer.length && ans.length && !sameAnswer(q.sourceAnswer, ans)) {
-          corrected++
-          const opts = Array.isArray(q.options) ? q.options.map(String) : []
-          const was = (q.sourceAnswer as unknown[]).map((i) => opts[Number(i)]).filter(Boolean).join(' + ')
-          q.explanation = `⚠️ La fuente marcaba «${was}» como correcta, pero no lo es. ${String(q.explanation ?? '')}`
+      const urls = cp.sources.filter((s) => s.kind === 'url') as Extract<Source, { kind: 'url' }>[]
+      const vids = cp.sources.filter((s) => s.kind === 'youtube') as Extract<Source, { kind: 'youtube' }>[]
+      const jobs: { urls: string[]; video?: string }[] = [...chunks(urls, () => 1, 3).map((g) => ({ urls: g.map((u) => u.url) })), ...vids.map((v) => ({ urls: [v.url], video: v.url }))]
+      for (let j = 0; j < jobs.length; j++) {
+        say('read', j, jobs.length)
+        const job = jobs[j]
+        let from = 0
+        for (let page = 0; page < 6; page++) {
+          const ask: Part[] = job.video ? [{ file_data: { file_uri: job.video } }, { text: readPrompt([], true, from) }] : [{ text: readPrompt(job.urls, false, from) }]
+          let d: { questions?: Record<string, unknown>[]; notes?: { src?: number; title?: string; text?: string }[]; skipped?: number; more?: boolean }
+          try { d = (await ai.json(SYSTEM, ask, { signal, temperature: 0.1, readUrls: !job.video, onWait: wait('read', j, jobs.length) })) as typeof d }
+          catch (e) { if (['aborted', 'key', 'quota_day'].includes((e as AiError).code)) throw e; break } // one unreadable link must not ruin the run
+          const qs = (d.questions ?? []).filter((q) => q && typeof q === 'object' && typeof q.stem === 'string')
+          cp.readQuestions.push(...qs)
+          cp.readSkipped += Math.max(0, Number(d.skipped) || 0)
+          if (page === 0) for (const n of d.notes ?? []) {
+            const txt = String(n.text ?? '')
+            if (txt && !/^NO DISPONIBLE/i.test(txt)) cp.notes.push({ text: `--- ${n.title || job.urls[Number(n.src) || 0] || 'fuente'} (${job.urls[Number(n.src) || 0] ?? ''}) ---\n${txt.slice(0, 60_000)}` })
+          }
+          from += qs.length
+          if (!d.more || !qs.length) break
         }
-        raw.push({ ...q, origin: 'source' })
       }
-      extracted += fresh
-      from += qs.length
-      if (!qs.length || d.more === false || fresh === 0) break
+      if (!parts.length && !cp.notes.length && !cp.readQuestions.length) throw new AiError('format', 'No se pudo leer ninguna fuente. Si es una web que pide registro o bloquea robots, guárdala como PDF o copia su texto.')
+      cp.textParts = parts
+      save()
     }
-    say('extract', extracted, extracted)
-  }
+    const local = cp.textParts
+    const parts = [...local, ...cp.notes]
 
-  // 4. new questions
-  const avoid = [...(input.avoid ?? []), ...raw.map((q) => String(q.stem))]
-  const newOnes: Record<string, unknown>[] = []
-  if (input.count > 0) {
-    if (!concepts.length) throw new AiError('format', 'No se encontraron conceptos en las fuentes. ¿El PDF tiene texto legible?')
-    const quotas = planQuotas(concepts, input.count, input.mix)
-    const batches = chunks(quotas, (q) => q.n, 12)
-    const small = parts.reduce((a, p) => a + partSize(p), 0) < SMALL_SOURCES
-    const examples = asExamples(raw)
-    for (const batch of batches) {
-      say('questions', newOnes.length, input.count)
-      const names = new Set(batch.map((q) => q.concept))
-      const prompt = questionsPrompt(input.subject, concepts.filter((c) => names.has(c.name)), batch, input.lang, style, examples, avoid)
-      const out = (await generateJson(key, model, SYSTEM, [...(small ? parts : []), { text: prompt }], { signal, temperature: 0.8, onWait: wait('questions', newOnes.length, input.count) })) as { questions?: Record<string, unknown>[] }
-      for (const q of out.questions ?? []) {
-        if (!q || typeof q !== 'object' || typeof q.stem !== 'string') continue
-        const k = normStem(q.stem)
-        if (seen.has(k)) continue
-        seen.add(k)
-        newOnes.push({ ...q, origin: 'ai' })
-        avoid.push(q.stem)
+    // 2. map of the exam
+    if (!cp.map) {
+      say('map', 0, 1)
+      const examples = asExamples(cp.readQuestions)
+      const mp = (await ai.json(SYSTEM, [...parts, ...(examples ? [{ text: '--- Preguntas encontradas en las fuentes ---\n' + examples }] : []), { text: mapPrompt(inp.subject, inp.count, inp.lang, inp.style) }], { signal, temperature: 0.2, onWait: wait('map', 0, 1) })) as { blueprint?: unknown; concepts?: RawConcept[]; style?: string; questionsInSources?: number }
+      cp.map = {
+        concepts: (mp.concepts ?? []).filter((c) => c && typeof c.name === 'string' && c.name.trim()).slice(0, 60),
+        blueprint: cleanBlueprint(mp.blueprint),
+        style: [STYLES[inp.style]?.text, typeof mp.style === 'string' ? mp.style : ''].filter(Boolean).join(' '),
+        expected: Math.max(0, Number(mp.questionsInSources) || 0),
+      }
+      save()
+    }
+    const { concepts, blueprint, style } = cp.map
+    const domains = blueprint?.map((b) => b.domain) ?? [...new Set(concepts.map((c) => c.domain).filter(Boolean) as string[])]
+
+    // 3. questions inside files and pasted text (links and videos were already read)
+    if (!cp.extract.done && local.length) {
+      const seen = new Set(cp.extract.raw.map((q) => normStem(String(q.stem))))
+      for (let round = 0; round < 40; round++) {
+        say('extract', cp.extract.raw.length + cp.readQuestions.length, Math.max(cp.map.expected, cp.extract.raw.length + cp.readQuestions.length))
+        const d = (await ai.json(SYSTEM, [...local, { text: extractPrompt(cp.extract.from, 40, domains, concepts.map((c) => c.name)) }], { signal, temperature: 0.1, onWait: wait('extract', cp.extract.raw.length, cp.map.expected) })) as { questions?: Record<string, unknown>[]; skipped?: number; more?: boolean }
+        const qs = (d.questions ?? []).filter((q) => q && typeof q === 'object' && typeof q.stem === 'string')
+        cp.extract.skipped += Math.max(0, Number(d.skipped) || 0)
+        let fresh = 0
+        for (const q of qs) { const k = normStem(String(q.stem)); if (seen.has(k)) continue; seen.add(k); cp.extract.raw.push(q); fresh++ }
+        cp.extract.from += qs.length
+        save()
+        if (!qs.length || d.more === false || fresh === 0) break
       }
     }
-    say('questions', newOnes.length, input.count)
-  }
+    cp.extract.done = true
+    save()
 
-  const studySheet = concepts.map((c) => ({ ...c, summary: [c.summary, ...(c.facts ?? []).map((f) => '• ' + f)].filter(Boolean).join('\n') }))
-  const all = [...raw, ...newOnes].map((q, i) => ({ ...q, id: (q.origin === 'source' ? 's' : 'g') + i, difficulty: parseDifficulty(q.difficulty) }))
-  const draft = makePack({ name: input.subject, lang: input.lang, source: `Creado con IA (${model}) a partir de las fuentes del usuario`, license: 'Uso personal', concepts: studySheet, blueprint }, all as never)
-  if (!draft.pack) return { ...draft, dropped: 0, corrected, extracted, skipped, model }
-
-  // 5. blind check of the new questions (extracted ones were already re-solved one by one)
-  let dropped = 0
-  if (input.verify) {
-    const gen = draft.pack.questions.filter((q) => q.origin === 'ai')
-    const bad = new Set<string>()
-    const groups = chunks(gen, () => 1, 15)
-    for (let g = 0; g < groups.length; g++) {
-      say('verify', g * 15, gen.length)
-      const res = (await generateJson(key, model, SYSTEM, [{ text: verifyPrompt(groups[g]) }], { signal, temperature: 0, onWait: wait('verify', g * 15, gen.length) })) as { answers?: { i?: number; answer?: number[]; ok?: boolean }[] }
-      const byI = new Map((res.answers ?? []).map((a) => [Number(a.i), a]))
-      groups[g].forEach((q, i) => {
-        const a = byI.get(i)
-        if (a && (a.ok === false || !sameAnswer(a.answer, q.answer))) bad.add(q.id)
-      })
+    // 4. new questions (20 per request)
+    if (!cp.gen.done) {
+      if (!concepts.length) throw new AiError('format', 'No se encontraron conceptos en las fuentes. ¿Tienen texto legible?')
+      const quotas = planQuotas(concepts, inp.count, inp.mix)
+      const batches = chunks(quotas, (q) => q.n, 20)
+      const small = parts.reduce((a, p) => a + partSize(p), 0) < SMALL_SOURCES
+      const examples = asExamples([...cp.readQuestions, ...cp.extract.raw])
+      const avoid = [...(inp.avoid ?? []), ...cp.readQuestions.map((q) => String(q.stem)), ...cp.extract.raw.map((q) => String(q.stem)), ...cp.gen.items.map((q) => String(q.stem))]
+      for (; cp.gen.batch < batches.length; cp.gen.batch++) {
+        say('questions', cp.gen.items.length, inp.count)
+        const batch = batches[cp.gen.batch]
+        const names = new Set(batch.map((q) => q.concept))
+        const prompt = questionsPrompt(inp.subject, concepts.filter((c) => names.has(c.name)), batch, inp.lang, style, examples, avoid)
+        const out = (await ai.json(SYSTEM, [...(small ? parts : []), { text: prompt }], { signal, temperature: 0.8, onWait: wait('questions', cp.gen.items.length, inp.count) })) as { questions?: Record<string, unknown>[] }
+        for (const q of out.questions ?? []) {
+          if (!q || typeof q !== 'object' || typeof q.stem !== 'string') continue
+          cp.gen.items.push(q)
+          avoid.push(q.stem)
+        }
+        save()
+      }
+      cp.gen.done = true
+      save()
     }
-    dropped = bad.size
-    draft.pack.questions = draft.pack.questions.filter((q) => !bad.has(q.id))
+
+    // 5. blind check of the new questions, 30 per request
+    if (!cp.verified) {
+      const draft = packFromCheckpoint(cp)
+      const gen = (draft.pack?.questions ?? []).filter((q) => q.origin === 'ai' && !cp.bad.includes(q.id))
+      const groups = chunks(gen, () => 1, 30)
+      for (let g = 0; g < groups.length; g++) {
+        say('verify', g * 30, gen.length)
+        const res = (await ai.json(SYSTEM, [{ text: verifyPrompt(groups[g]) }], { signal, temperature: 0, onWait: wait('verify', g * 30, gen.length) })) as { answers?: { i?: number; answer?: number[]; ok?: boolean }[] }
+        const byI = new Map((res.answers ?? []).map((a) => [Number(a.i), a]))
+        groups[g].forEach((q, i) => { const a = byI.get(i); if (a && (a.ok === false || !sameAnswer(a.answer, q.answer))) cp.bad.push(q.id) })
+        save()
+      }
+      cp.verified = true
+      save()
+    }
+  } catch (e) {
+    save()
+    throw e
   }
-  say('done', draft.pack.questions.length, draft.pack.questions.length)
-  return { ...draft, dropped, corrected, extracted, skipped, model }
+  const res = packFromCheckpoint(cp, ai.model)
+  say('done', res.pack?.questions.length ?? 0, res.pack?.questions.length ?? 0)
+  return res
 }
 
 /** Finds every top-level JSON object in a pasted text (several chat answers, ```json fences…). */

@@ -1,9 +1,10 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { z } from 'zod'
 import { difficultyCounts, importText, mergePacks, slug } from '../core/packs'
 import type { Pack } from '../core/types'
 import { AiError, fileToPart } from '../ai/gemini'
-import { MIXES, STYLES, generatePack, masterPrompt, splitJsonBlocks, type GenResult, type Mix, type Progress, type Source, type Step } from '../ai/pipeline'
+import { MIXES, STYLES, generatePack, masterPrompt, packFromCheckpoint, splitJsonBlocks, type Checkpoint, type GenResult, type Mix, type Progress, type Source, type Step } from '../ai/pipeline'
+import { idb } from '../idb'
 import { S, saveCustomPacks, storage, updateSettings, useStore } from '../store'
 import { copy } from './common'
 
@@ -18,6 +19,16 @@ const STEP_TEXT: Record<Step, string> = {
   verify: 'Comprobando las nuevas a ciegas',
   done: 'Listo',
 }
+const CP_KEY = 'ai-checkpoint'
+
+/** Free daily quotas reset at midnight Pacific time; returns that moment in the user's clock. */
+export function quotaReset(now = Date.now()): Date {
+  const hourLA = (t: number) => Number(new Intl.DateTimeFormat('en-US', { timeZone: 'America/Los_Angeles', hour: 'numeric', hourCycle: 'h23' }).format(t))
+  const base = Math.ceil(now / 3_600_000) * 3_600_000
+  for (let h = 0; h < 26; h++) { const t = base + h * 3_600_000; if (hourLA(t) === 0) return new Date(t) }
+  return new Date(now + 86_400_000)
+}
+
 const YT = /^https:\/\/(www\.|m\.)?(youtube\.com\/(watch\?v=|shorts\/|live\/)|youtu\.be\/)[\w-]{6,}/i
 
 type SrcItem = { id: number; kind: Source['kind']; label: string; size?: number; file?: File; url?: string; text?: string }
@@ -121,9 +132,10 @@ export function Generate({ toImport }: { toImport(): void }) {
     return { kind: it.kind, label: it.label, url: it.url! }
   }))
 
-  const save = (pack: Pack) => {
+  const save = (pack: Pack, intoId?: string) => {
     let final: Pack
-    if (targetPack) final = mergePacks(targetPack, pack).pack
+    const into = custom.find((p) => p.id === (intoId ?? target)) ?? S().packs.find((p) => !p.builtIn && p.id === intoId)
+    if (into) final = mergePacks(into, pack).pack
     else {
       let id = slug(pack.name) || 'pack'
       while (S().packs.some((p) => p.id === id)) id += '-2'
@@ -135,6 +147,43 @@ export function Generate({ toImport }: { toImport(): void }) {
     return final
   }
 
+  const [pending, setPending] = useState<Checkpoint | null>(null)
+  const [model, setModel] = useState('')
+  useEffect(() => { void idb.get<Checkpoint>(CP_KEY).then((cp) => { if (cp?.v === 1) setPending(cp) }) }, [])
+
+  const execute = async (input: Parameters<typeof generatePack>[1], resume?: Checkpoint) => {
+    storage.set('geminiKey', remember ? key.trim() : '')
+    const ctrl = new AbortController()
+    abort.current = ctrl
+    let cp: Checkpoint | undefined = resume
+    let lastWrite = 0
+    const persist = (c: Checkpoint) => { cp = c; if (Date.now() - lastWrite > 1500 || c.verified) { lastWrite = Date.now(); void idb.set(CP_KEY, c) } }
+    setPending(null)
+    try {
+      const r = await generatePack(key.trim(), input, setProgress, ctrl.signal, { resume, save: persist, onModel: (m) => setModel(m) })
+      if (!r.pack || !r.pack.questions.length) throw new AiError('format', r.error || 'No salió ninguna pregunta válida. Revisa que las fuentes tengan texto legible.')
+      const saved = save(r.pack, cp?.targetId)
+      await idb.del(CP_KEY)
+      setResult({ pack: saved, res: r })
+    } catch (e) {
+      const err = e as AiError
+      let msg = err instanceof AiError ? err.message : 'Algo falló: ' + (e as Error).message
+      // keep what was done: save the questions so far and remember where to continue
+      if (cp && err.code !== 'key') {
+        const partial = packFromCheckpoint(cp)
+        if (partial.pack?.questions.length) {
+          const saved = save(partial.pack, cp.targetId)
+          cp.targetId = saved.id
+          msg += ` Ya están guardadas ${partial.pack.questions.length} preguntas en “${saved.name}”.`
+        }
+        await idb.set(CP_KEY, cp)
+        if (err.code !== 'aborted') setPending(cp)
+        if (err.code === 'quota_day') msg += ` La cuota gratuita se renueva el ${quotaReset().toLocaleString('es-ES', { weekday: 'long', hour: '2-digit', minute: '2-digit' })}: entonces pulsa “Continuar” y seguirá donde lo dejó.`
+      }
+      setError(msg)
+    } finally { setProgress(null); abort.current = null }
+  }
+
   const run = async () => {
     setError(null); setResult(null)
     if (!name) return setError('Escribe el nombre de la asignatura o certificación.')
@@ -142,18 +191,17 @@ export function Generate({ toImport }: { toImport(): void }) {
     if (size > MAX_FILES) return setError('Los archivos suman más de 14 MB. Quita alguno o divide el PDF y hazlo en dos tandas (puedes añadir la segunda al mismo pack).')
     if (!extract && count === 0) return setError('Elige extraer las preguntas de las fuentes, generar nuevas, o ambas cosas.')
     if (!key.trim()) return setError('Pega tu clave gratuita de Gemini (ver el enlace de abajo) o usa el modo manual.')
-    storage.set('geminiKey', remember ? key.trim() : '')
-    const ctrl = new AbortController()
-    abort.current = ctrl
-    try {
-      const sources = await toSources()
-      const r = await generatePack(key.trim(), { subject: name, sources, extract, count, mix, lang, style, verify, avoid: targetPack?.questions.map((q) => q.stem) }, setProgress, ctrl.signal)
-      if (!r.pack || !r.pack.questions.length) throw new AiError('format', r.error || 'No salió ninguna pregunta válida. Revisa que las fuentes tengan texto legible.')
-      setResult({ pack: save(r.pack), res: r })
-    } catch (e) {
-      setError(e instanceof AiError ? e.message : 'Algo falló: ' + (e as Error).message)
-    } finally { setProgress(null); abort.current = null }
+    const sources = await toSources()
+    await execute({ subject: name, sources, extract, count, mix, lang, style, verify, avoid: targetPack?.questions.map((q) => q.stem) })
   }
+
+  const resume = async () => {
+    if (!pending) return
+    setError(null); setResult(null)
+    if (!key.trim()) return setError('Pega tu clave de Gemini para continuar.')
+    await execute({ ...pending.input, sources: pending.sources }, pending)
+  }
+  const discard = async () => { await idb.del(CP_KEY); setPending(null) }
 
   const master = masterPrompt(name || 'Mi asignatura', { extract, count, mix, lang, style })
   const importPasted = () => {
@@ -180,6 +228,16 @@ export function Generate({ toImport }: { toImport(): void }) {
   const steps: Step[] = ['model', ...(items.some((i) => i.kind === 'url' || i.kind === 'youtube') ? ['read' as Step] : []), 'map', ...(extract ? ['extract' as Step] : []), ...(count ? ['questions' as Step] : []), ...(verify && count ? ['verify' as Step] : [])]
   return (
     <div className="stack" style={{ gap: 16 }}>
+      {pending && !progress && (
+        <section className="panel hero" aria-labelledby="pend-h">
+          <h2 id="pend-h">Tienes “{pending.input.subject}” a medias</h2>
+          <p className="small">
+            Hecho: {pending.textParts ? 'fuentes leídas' : 'empezando'}{pending.map ? ' · mapa del examen' : ''}{pending.readQuestions.length + pending.extract.raw.length ? ` · ${pending.readQuestions.length + pending.extract.raw.length} preguntas extraídas` : ''}{pending.gen.items.length ? ` · ${pending.gen.items.length} nuevas` : ''}.
+            Continuar no repite lo ya hecho. La cuota gratuita diaria se renueva el {quotaReset().toLocaleString('es-ES', { weekday: 'long', hour: '2-digit', minute: '2-digit' })}.
+          </p>
+          <div className="row"><button className="btn big accent" onClick={() => void resume()}>Continuar</button><button className="btn" onClick={() => void discard()}>Descartar</button></div>
+        </section>
+      )}
       <div className="grid2">
         <section className="panel">
           <h2>1. Tus fuentes</h2>
@@ -274,7 +332,8 @@ export function Generate({ toImport }: { toImport(): void }) {
                 })}
               </ol>
               {progress.note && <p className="small warn">{progress.note}</p>}
-              <p className="small muted">Con el plan gratuito puede tardar unos minutos, más si hay muchas preguntas que extraer. No cierres la pestaña.</p>
+              {model && <p className="small muted">Modelo: <span className="mono">{model}</span></p>}
+              <p className="small muted">Con el plan gratuito puede tardar unos minutos. El avance se guarda: si se corta o se acaba la cuota del día, podrás continuar.</p>
             </div>
           )}
           {error && <div className="warn" role="alert">{error}</div>}

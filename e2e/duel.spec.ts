@@ -237,55 +237,57 @@ test.describe('encrypted relay fallback', () => {
   })
 })
 
-test('source notebook: extract, correct and generate questions (Gemini mocked)', async ({ context }) => {
-  let calls = 0
-  let k = 0 // generated-question counter; #2 carries a wrong key on purpose
-  let sawKeyInUrl = false
-  const seen = { read: 0, yt: false, urlTool: false, extractPages: 0 }
-  await context.route('https://generativelanguage.googleapis.com/**', async (route) => {
+/** Fake Gemini API: enough behaviour to drive the whole pipeline. */
+function mockGemini(opts: { dayLimit?: (model: string, prompt: string) => boolean } = {}) {
+  const st = { calls: 0, k: 0, sawKeyInUrl: false, read: 0, yt: false, urlTool: false, extractPages: 0, models: [] as string[] }
+  const handler = async (route: import('@playwright/test').Route) => {
     const req = route.request()
     const cors = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'content-type': 'application/json' }
     if (req.method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cors })
-    if (/[?&]key=/.test(req.url())) sawKeyInUrl = true
+    if (/[?&]key=/.test(req.url())) st.sawKeyInUrl = true
     expect(req.headers()['x-goog-api-key']).toBe('AIzaTEST')
-    if (req.url().includes('/models?')) return route.fulfill({ headers: cors, body: JSON.stringify({ models: [{ name: 'models/gemini-2.5-flash', supportedGenerationMethods: ['generateContent'] }, { name: 'models/gemini-3.8-flash', supportedGenerationMethods: ['generateContent'] }] }) })
-    expect(req.url()).toContain('gemini-3.8-flash') // newest flash model chosen
-    calls++
-    if (calls === 1) return route.fulfill({ status: 429, headers: cors, body: JSON.stringify({ error: { code: 429, message: 'quota', details: [{ retryDelay: '1s' }] } }) })
+    if (req.url().includes('/models?')) return route.fulfill({ headers: cors, body: JSON.stringify({ models: ['gemini-2.5-flash', 'gemini-3.8-flash', 'gemini-3.8-flash-lite', 'gemini-2.5-flash-image-preview'].map((n) => ({ name: 'models/' + n, supportedGenerationMethods: ['generateContent'] })) }) })
+    const model = /models\/([^:]+):/.exec(req.url())![1]
+    st.models.push(model)
+    st.calls++
     const body = JSON.parse(req.postData() || '{}')
     const parts = body.contents[0].parts as { text?: string; inline_data?: unknown; file_data?: { file_uri: string } }[]
     const prompt = parts.map((p) => p.text ?? '').join('\n')
+    if (st.calls === 1) return route.fulfill({ status: 429, headers: cors, body: JSON.stringify({ error: { code: 429, message: 'quota', details: [{ '@type': 'type.googleapis.com/google.rpc.QuotaFailure', violations: [{ quotaId: 'GenerateRequestsPerMinutePerProjectPerModel-FreeTier' }] }, { '@type': 'type.googleapis.com/google.rpc.RetryInfo', retryDelay: '1s' }] } }) })
+    if (opts.dayLimit?.(model, prompt)) return route.fulfill({ status: 429, headers: cors, body: JSON.stringify({ error: { code: 429, message: 'You exceeded your current quota', details: [{ '@type': 'type.googleapis.com/google.rpc.QuotaFailure', violations: [{ quotaId: 'GenerateRequestsPerDayPerProjectPerModel-FreeTier' }] }] } }) })
     const reply = (obj: unknown) => route.fulfill({ headers: cors, body: JSON.stringify({ candidates: [{ content: { parts: [{ text: '```json\n' + JSON.stringify(obj) + '\n```' }] } }] }) })
-    if (prompt.includes('devuelve su contenido útil para estudiar')) {
-      seen.read++
-      if (parts.some((p) => p.file_data?.file_uri.includes('youtube.com'))) { seen.yt = true; return reply({ title: 'Vídeo repaso', text: 'Autopilot registra dispositivos con el hash de hardware.' }) }
-      if (body.tools?.[0]?.url_context) seen.urlTool = true
+    if (prompt.includes('"notes"')) {
+      st.read++
+      if (parts.some((p) => p.file_data?.file_uri.includes('youtube.com'))) { st.yt = true; return reply({ questions: [], notes: [{ src: 0, title: 'Vídeo repaso', text: 'Autopilot registra dispositivos con el hash de hardware.' }], more: false }) }
+      if (body.tools?.[0]?.url_context) st.urlTool = true
       expect(body.generationConfig.responseMimeType).toBeUndefined() // JSON mode is off when tools are used
-      return reply({ title: 'Preguntas web', text: '1. ¿Qué herramienta registra dispositivos en Autopilot? A) Hash de hardware B) MDM C) GPO. Respuesta: B' })
+      expect(prompt).toContain('[0] https://example.com/md-102-questions')
+      expect(prompt).toContain('[1] https://example.org/otra')
+      return reply({ questions: [
+        { src: 0, stem: '¿Qué registra un dispositivo en Autopilot?', options: ['Hash de hardware', 'MDM', 'GPO'], sourceAnswer: [1], answer: [0], explanation: 'Autopilot usa el hash de hardware.', domain: 'Gestionar dispositivos', concept: 'Autopilot', difficulty: 1 },
+        { src: 1, stem: 'Contoso necesita bloquear equipos sin BitLocker. ¿Qué configuras?', options: ['Directiva de cumplimiento', 'Perfil Wi-Fi', 'Script'], sourceAnswer: [0], answer: [0], explanation: 'Cumplimiento + acceso condicional.', domain: 'Identidad y cumplimiento', difficulty: 2 },
+      ], notes: [{ src: 0, title: 'Preguntas web', text: 'Autopilot y cumplimiento.' }, { src: 1, text: 'NO DISPONIBLE' }], skipped: 1, more: false })
     }
-    if (prompt.includes('Mapa') || prompt.includes('"blueprint"')) {
+    if (prompt.includes('"blueprint"')) {
       expect(parts.some((p) => p.inline_data)).toBe(true)
-      expect(prompt).toContain('Autopilot registra') // text read from the video reaches later steps
+      expect(prompt).toContain('Autopilot registra') // notes read from the video reach later steps
       return reply({ blueprint: [{ domain: 'Identidad y cumplimiento', weight: '15-20%' }, { domain: 'Gestionar dispositivos', weight: 40 }, { domain: 'Aplicaciones', weight: 20 }], concepts: [
         { name: 'Autopilot', domain: 'Gestionar dispositivos', weight: 5, summary: 'Aprovisionamiento', facts: ['Hash de hardware'], traps: ['Confundir con MDM'] },
         { name: 'Compliance', domain: 'Identidad y cumplimiento', weight: 3, summary: 'Directivas de cumplimiento', facts: ['Acceso condicional'] },
         { name: 'Win32 apps', domain: 'Aplicaciones', weight: 2, summary: 'Empaquetado intunewin', facts: ['IntuneWinAppUtil'] },
-      ], style: 'Escenarios Contoso.', questionsInSources: 3 })
+      ], style: 'Escenarios Contoso.', questionsInSources: 1 })
     }
     if (prompt.includes('Extrae las preguntas tipo test')) {
-      seen.extractPages++
-      if (prompt.includes('nº 1 ')) return reply({ questions: [
-        { stem: '¿Qué registra un dispositivo en Autopilot?', options: ['Hash de hardware', 'MDM', 'GPO'], sourceAnswer: [1], answer: [0], explanation: 'Autopilot usa el hash de hardware.', domain: 'Gestionar dispositivos', concept: 'Autopilot', difficulty: 1 },
-        { stem: 'Contoso necesita bloquear equipos sin BitLocker. ¿Qué configuras?', options: ['Directiva de cumplimiento', 'Perfil Wi-Fi', 'Script'], sourceAnswer: [0], answer: [0], explanation: 'Cumplimiento + acceso condicional.', domain: 'Identidad y cumplimiento', difficulty: 2 },
-      ], skipped: 1, more: true })
+      st.extractPages++
+      expect(prompt).not.toContain('Autopilot registra') // only local files/text, not notes
       return reply({ questions: [{ stem: '¿Qué herramienta empaqueta apps Win32?', options: ['IntuneWinAppUtil', 'MSIX'], sourceAnswer: null, answer: [0], explanation: 'Crea el .intunewin.', domain: 'Aplicaciones', difficulty: 1 }], more: false })
     }
     if (prompt.includes('preguntas tipo test NUEVAS')) {
-      expect(prompt).toContain('Preguntas reales de las fuentes') // extracted ones are the style examples
+      expect(prompt).toContain('Preguntas reales de las fuentes')
       const quotas = [...prompt.matchAll(/- (\d+) × dificultad (\d) sobre "([^"]+)"/g)]
       const questions = quotas.flatMap((m) => Array.from({ length: Number(m[1]) }, () => {
-        k++
-        return { concept: m[3], domain: m[3] === 'Autopilot' ? 'Gestionar dispositivos' : m[3] === 'Win32 apps' ? 'Aplicaciones' : 'Identidad y cumplimiento', difficulty: Number(m[2]), stem: `Nueva ${m[3]} ${m[2]}-${k}${k === 2 ? ' TRAMPA' : ''}?`, options: ['Correcta', 'B', 'C', 'D'], answer: [0], explanation: 'Porque sí.' }
+        st.k++
+        return { concept: m[3], domain: m[3] === 'Autopilot' ? 'Gestionar dispositivos' : m[3] === 'Win32 apps' ? 'Aplicaciones' : 'Identidad y cumplimiento', difficulty: Number(m[2]), stem: `Nueva ${m[3]} ${m[2]}-${st.k}${st.k === 2 ? ' TRAMPA' : ''}?`, options: ['Correcta', 'B', 'C', 'D'], answer: [0], explanation: 'Porque sí.' }
       }))
       return reply({ questions })
     }
@@ -294,35 +296,47 @@ test('source notebook: extract, correct and generate questions (Gemini mocked)',
       return reply({ answers: qs.map((q) => ({ i: q.i, answer: q.stem.includes('TRAMPA') ? [1] : [0], ok: true })) })
     }
     return route.fulfill({ status: 500, headers: cors, body: '{}' })
-  })
+  }
+  return { st, handler }
+}
 
-  const p = await open(context)
+async function fillNotebook(p: Page) {
   await profile(p, 'Estudiante')
   await p.getByRole('button', { name: 'Gestionar packs →' }).click()
   await p.getByRole('tab', { name: '✨ Crear con IA' }).click()
   await p.getByPlaceholder(/MD-102, Bases de datos/).fill('MD-102')
   await p.locator('input[type=file]').first().setInputFiles({ name: 'guia-md102.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4 fake') })
-  await p.getByPlaceholder(/Enlace a una web/).fill('https://example.com/md-102-questions')
-  await p.getByRole('button', { name: 'Añadir', exact: true }).click()
-  await p.getByPlaceholder(/Enlace a una web/).fill('https://www.youtube.com/watch?v=abcdefghijk')
-  await p.getByRole('button', { name: 'Añadir', exact: true }).click()
+  for (const u of ['https://example.com/md-102-questions', 'https://example.org/otra', 'https://www.youtube.com/watch?v=abcdefghijk']) {
+    await p.getByPlaceholder(/Enlace a una web/).fill(u)
+    await p.getByRole('button', { name: 'Añadir', exact: true }).click()
+  }
   await p.getByPlaceholder(/o pega texto/).fill('## ¿Qué es Intune?\n- [x] MDM en la nube\n- [ ] Un antivirus')
   await p.getByRole('button', { name: 'Añadir texto' }).click()
-  await expect(p.getByRole('list', { name: 'Fuentes' }).locator('li')).toHaveCount(4)
-  await expect(p.getByText('▶️ www.youtube.com/watch')).toBeVisible()
+  await expect(p.getByRole('list', { name: 'Fuentes' }).locator('li')).toHaveCount(5)
   await p.getByRole('group', { name: 'Preguntas nuevas' }).getByRole('button', { name: '20', exact: true }).click()
   await p.getByLabel('Estilo del examen').selectOption('microsoft')
   await p.getByPlaceholder('AIza…').fill('AIzaTEST')
+}
+
+test('source notebook: extract, correct and generate questions; switches model when one runs out', async ({ context }) => {
+  // the best model has no daily quota left: the run must continue with the next one
+  const { st, handler } = mockGemini({ dayLimit: (m) => m === 'gemini-3.8-flash' })
+  await context.route('https://generativelanguage.googleapis.com/**', handler)
+  const p = await open(context)
+  await fillNotebook(p)
   await p.getByRole('button', { name: 'Crear pack' }).click()
-  await expect(p.getByText('esperando')).toBeVisible({ timeout: 10_000 })
   await expect(p.getByRole('heading', { name: /guardado/ })).toBeVisible({ timeout: 60_000 })
   await expect(p.getByText('📥 3 de tus fuentes')).toBeVisible()
   await expect(p.getByText('✨ 19 nuevas')).toBeVisible() // 20 − 1 dropped by the blind check
   await expect(p.getByText('⚠️ 1 respuestas corregidas')).toBeVisible()
   await expect(p.getByText('📊 3 dominios con peso')).toBeVisible()
   await expect(p.getByText('🖼 1 con imagen omitidas')).toBeVisible()
-  expect(seen).toEqual({ read: 2, yt: true, urlTool: true, extractPages: 2 })
-  expect(sawKeyInUrl).toBe(false)
+  expect({ read: st.read, yt: st.yt, urlTool: st.urlTool, extractPages: st.extractPages }).toEqual({ read: 2, yt: true, urlTool: true, extractPages: 1 }) // 2 links in ONE request + 1 video
+  expect(st.models).not.toContain('gemini-2.5-flash-image-preview')
+  expect(st.models.filter((m) => m === 'gemini-3.8-flash').length).toBeLessThanOrEqual(2) // abandoned at once
+  expect(st.models.at(-1)).toBe('gemini-2.5-flash')
+  expect(st.calls).toBeLessThan(14)
+  expect(st.sawKeyInUrl).toBe(false)
   expect(await p.evaluate(() => localStorage.getItem('battlecert.geminiKey'))).toBe('""')
   const saved = await p.evaluate(() => JSON.parse(localStorage.getItem('battlecert.packs')!).find((x: { name: string }) => x.name === 'MD-102'))
   expect(saved.blueprint[0]).toEqual({ domain: 'Identidad y cumplimiento', weight: 17.5 }) // '15-20%' → midpoint
@@ -334,6 +348,36 @@ test('source notebook: extract, correct and generate questions (Gemini mocked)',
   await p.getByRole('group', { name: 'Dificultad' }).getByRole('button', { name: /Difíciles/ }).click()
   await p.getByRole('button', { name: 'Practicar solo' }).click()
   await expect(p.locator('.diff')).toHaveText('Difícil', { timeout: 10_000 })
+})
+
+test('daily quota exhausted everywhere: work is saved and continues later', async ({ context }) => {
+  let quotaGone = true
+  // every model runs out while writing new questions
+  const { handler } = mockGemini({ dayLimit: (_m, prompt) => quotaGone && prompt.includes('preguntas tipo test NUEVAS') })
+  await context.route('https://generativelanguage.googleapis.com/**', handler)
+  const p = await open(context)
+  await fillNotebook(p)
+  await p.getByRole('button', { name: 'Crear pack' }).click()
+  const alert = p.getByRole('alert')
+  await expect(alert).toContainText('Se ha agotado la cuota gratuita de hoy', { timeout: 60_000 })
+  await expect(alert).toContainText('Ya están guardadas 3 preguntas en “MD-102”')
+  await expect(alert).toContainText('Continuar')
+  await expect(p.getByRole('heading', { name: /a medias/ })).toBeVisible()
+  // reloading keeps the unfinished run (IndexedDB)
+  await p.reload()
+  await p.getByRole('button', { name: 'Gestionar packs →' }).click()
+  await p.getByRole('tab', { name: '✨ Crear con IA' }).click()
+  await expect(p.getByRole('heading', { name: 'Tienes “MD-102” a medias' })).toBeVisible()
+  await expect(p.getByText('3 preguntas extraídas')).toBeVisible()
+  // next day: quota is back
+  quotaGone = false
+  await p.getByPlaceholder('AIza…').fill('AIzaTEST')
+  await p.getByRole('button', { name: 'Continuar' }).click()
+  await expect(p.getByRole('heading', { name: /guardado/ })).toBeVisible({ timeout: 60_000 })
+  const packs = await p.evaluate(() => JSON.parse(localStorage.getItem('battlecert.packs')!).filter((x: { name: string }) => x.name === 'MD-102'))
+  expect(packs).toHaveLength(1) // continued into the same pack, no duplicate
+  expect(packs[0].questions.length).toBe(22) // 3 from sources + 19 new
+  await expect(p.getByRole('heading', { name: /a medias/ })).toHaveCount(0)
 })
 
 test('manual mode: master prompt and pasting several chat answers', async ({ context }) => {

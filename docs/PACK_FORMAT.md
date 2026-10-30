@@ -85,6 +85,7 @@ Puedes guardar como pack nuevo o **añadir a uno existente sin duplicados**, as�
 ### Motores
 
 - **Automático con Gemini (gratis):** clave de [Google AI Studio](https://aistudio.google.com/apikey), sin tarjeta. Las peticiones van de tu navegador a Google; BattleCert no tiene servidor. Si se alcanza el límite gratuito por minuto, la app espera y sigue.
+  - **Cuota gratuita:** Google limita las peticiones por minuto y **por día, para cada modelo**. La app agrupa el trabajo (3 webs por petición, 20 preguntas nuevas por petición, 30 comprobaciones por petición), espera cuando toca el límite por minuto y, si un modelo agota su cuota del día, sigue con otro modelo Flash o Flash-Lite. Si se agotan todos, guarda lo hecho y aparece **Continuar** para retomarlo cuando se renueve la cuota (medianoche hora del Pacífico: las 08:00 o 09:00 en España, según la época del año), sin repetir pasos.
 - **Manual (sin clave):** copia el **prompt maestro** en [NotebookLM](https://notebooklm.google.com) con tus fuentes (o en Gemini, Claude o ChatGPT con los archivos). Si la respuesta no cabe, el prompt pide continuar: escribe "sigue" y pega todas las respuestas juntas; la app une los bloques.
 
 Revisa siempre una muestra: la IA también se equivoca. Los packs son personales; la galería comunitaria del repo solo aceptará contenido original o con licencia que permita compartirlo.

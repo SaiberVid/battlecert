@@ -478,3 +478,55 @@ test.describe('CERT KUMITE', () => {
     expect(before).toContain('left: 50%')
   })
 })
+
+test.describe('CERT RAID', () => {
+  test('solo raid: shoot the boss until it falls or you do, then see the misses', async ({ context }) => {
+    const p = await open(context)
+    await profile(p, 'David')
+    await p.locator('.mode', { hasText: 'CERT RAID' }).click()
+    await p.getByRole('group', { name: 'Vida del jefe' }).getByRole('button', { name: /Corto/ }).click()
+    await p.getByRole('button', { name: 'Raid en solitario' }).click()
+    await expect(p.locator('canvas.kstage')).toBeVisible({ timeout: 10_000 })
+    await expect(p.locator('.rboss')).toContainText('GATLING-9')
+    await expect(p.locator('.rhearts i.on')).toHaveCount(5)
+    for (let i = 0; i < 30; i++) {
+      if (await p.getByRole('heading', { name: /derrotado|Game over|escapa|Campaña/ }).count()) break
+      const opt = p.locator('.opt:not([disabled])').first()
+      await opt.waitFor({ timeout: 15_000 }).catch(() => {})
+      if (await opt.count()) await opt.click()
+      // "choose TWO" questions need a second pick
+      if (!(await p.locator('.raidline').count()) && await p.locator('.opt:not([disabled]):not([aria-pressed="true"])').count()) await p.locator('.opt:not([disabled]):not([aria-pressed="true"])').first().click()
+      if (await p.getByRole('heading', { name: /derrotado|Game over|escapa|Campaña/ }).count()) break
+      await expect(p.locator('.raidline')).toBeVisible()
+      await expect(p.locator('.raidline')).toContainText(/disparó con la [A-D]/)
+      const next = p.getByRole('button', { name: 'Siguiente →' })
+      if (await next.count()) await next.click()
+    }
+    await expect(p.getByRole('heading', { name: /derrotado|Game over|escapa/ })).toBeVisible({ timeout: 15_000 })
+    await expect(p.getByRole('button', { name: /Reintentar|Siguiente jefe/ })).toBeVisible()
+  })
+
+  test('two heroes: one shoots, the other bets in secret, both picks shown at the reveal', async ({ context }) => {
+    const h = await open(context)
+    await profile(h, 'Host')
+    await h.locator('.mode', { hasText: 'CERT RAID' }).click()
+    await h.getByRole('button', { name: 'Crear sala' }).click()
+    const code = (await h.locator('.code').first().textContent())!.trim()
+    const g = await open(context)
+    await joinByCode(g, 'Guest', code)
+    await expect(h.getByText(/Rex = Host · Nova = Guest/)).toBeVisible()
+    await h.getByRole('button', { name: /Empezar con 2/ }).click()
+    await expect(h.getByText(/Te toca disparar/)).toBeVisible({ timeout: 10_000 })
+    await expect(g.getByText(/Apuesta en secreto/)).toBeVisible()
+    await expect(g.locator('.rhearts i.on')).toHaveCount(6)
+    await g.locator('.opt').nth(1).click()
+    await expect(g.getByText(/Apuesta guardada/)).toBeVisible()
+    await h.locator('.opt').first().click()
+    for (const p of [h, g]) {
+      await expect(p.locator('.raidline')).toContainText(/Host.*disparó con la A/)
+      await expect(p.locator('.raidline')).toContainText(/Guest.*habría elegido la B/)
+    }
+    await h.getByRole('button', { name: 'Siguiente →' }).click()
+    await expect(g.getByText(/Te toca disparar/)).toBeVisible({ timeout: 10_000 })
+  })
+})

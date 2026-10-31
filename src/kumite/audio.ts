@@ -92,5 +92,14 @@ export const ksfx = {
     let x = t
     n.forEach((f, i) => { tone(a, o, x, f, f, d[i] * 0.95, 'square', 0.12); tone(a, o, x, f / 2, f / 2, d[i] * 0.95, 'triangle', 0.2); x += d[i] })
   }),
+  // CERT RAID
+  shot: () => play((a, o, t) => { tone(a, o, t, 1400, 180, 0.12, 'square', 0.16); hiss(a, o, t, 0.08, 0.45, 'highpass', 2500, 900) }),
+  crit: () => play((a, o, t) => { [0, 0.07, 0.14].forEach((d) => tone(a, o, t + d, 1600, 200, 0.1, 'square', 0.14)); hiss(a, o, t + 0.2, 0.35, 0.7, 'lowpass', 4000, 150); tone(a, o, t + 0.2, 160, 40, 0.4, 'triangle', 0.5) }),
+  bossShot: () => play((a, o, t) => { [0, 0.06, 0.12, 0.18].forEach((d) => { hiss(a, o, t + d, 0.05, 0.5, 'bandpass', 1800, 900); tone(a, o, t + d, 300, 120, 0.05, 'square', 0.14) }) }),
+  laser: () => play((a, o, t) => { tone(a, o, t, 180, 1200, 0.45, 'sawtooth', 0.12); tone(a, o, t, 90, 600, 0.45, 'square', 0.08) }),
+  hurt: () => play((a, o, t) => { hiss(a, o, t, 0.2, 0.6, 'lowpass', 2500, 300); tone(a, o, t, 420, 140, 0.25, 'square', 0.2) }),
+  explode: () => play((a, o, t) => { hiss(a, o, t, 1.4, 0.9, 'lowpass', 3000, 60, 0.7); tone(a, o, t, 120, 25, 1.2, 'triangle', 0.7); [0.25, 0.5, 0.8].forEach((d) => hiss(a, o, t + d, 0.4, 0.5, 'lowpass', 1800, 80, 0.6)) }),
+  revive: () => play((a, o, t) => { [523, 659, 784, 1047, 1319].forEach((f, i) => tone(a, o, t + i * 0.07, f, f, 0.12, 'square', 0.1)) }),
+  enrage: () => play((a, o, t) => { [0, 0.3, 0.6].forEach((d) => { tone(a, o, t + d, 440, 880, 0.14, 'square', 0.12); tone(a, o, t + d + 0.14, 880, 440, 0.14, 'square', 0.12) }) }),
   lose: () => play((a, o, t) => { [392, 370, 349, 330].forEach((f, i) => tone(a, o, t + i * 0.28, f, f * 0.97, 0.26, 'square', 0.1)); tone(a, o, t + 1.12, 262, 196, 0.7, 'triangle', 0.25) }),
 }

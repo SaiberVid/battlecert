@@ -1,8 +1,9 @@
 // Game engine: a pure state machine run by the host. Guests only render the PublicState the
 // host broadcasts, so they never hold the pack or the answers before a reveal.
-import type { Answer, DiffMode, MatchSettings, Mode, Pack, Phase, Player, PublicState, Question, Score } from './types'
+import type { Answer, DiffMode, MatchSettings, Mode, Pack, Phase, Player, PublicState, Question, RaidLogItem, Score } from './types'
 import { dict } from './sanitize'
 import { decide, newKumite, resolve, type KumiteState } from './kumite'
+import { ENRAGED_TIME, escapeRaid, newRaid, resolveRaid, type RaidState } from './raid'
 
 export const STEAL_MS = 10_000
 export const REVEAL_MS = 8_000
@@ -16,6 +17,7 @@ export const MODES: Record<Mode, { name: string; desc: string; defaultSecs: numb
   survival: { name: 'Supervivencia', desc: '3 vidas. Fallar o no responder quita una. Gana quien quede.', defaultSecs: 20 },
   wager: { name: 'Apuesta', desc: 'Apuesta 1, 2 o 3 a tu respuesta: ganas o pierdes 100 × apuesta.', defaultSecs: 30 },
   kumite: { name: 'CERT KUMITE', desc: '1 contra 1 en una plataforma: cada acierto empuja al rival. Échalo y ganas.', defaultSecs: 20 },
+  raid: { name: 'CERT RAID', desc: 'Cooperativo contra un jefe: por turnos, cada acierto le dispara y cada fallo te cuesta un corazón.', defaultSecs: 30 },
 }
 
 export interface HostPlayer extends Player { label: string; token: string | null }
@@ -40,7 +42,14 @@ export interface Match {
   /** CERT KUMITE: the fight and its two fighters (other players watch) */
   k?: KumiteState
   kf?: [string, string]
+  /** CERT RAID: the fight, its heroes (up to two; others watch) and what each hero answered */
+  r?: RaidState
+  rf?: string[]
+  rlog?: { qid: string; picks: { pid: string; role: 'shot' | 'bet'; c: number[]; ok: boolean }[] }[]
 }
+
+export const RAID_REVEAL_MS = 4_200
+export const RAID_END_MS = 5_500
 
 /** KUMITE pause after each exchange: just enough for the animation (a K.O. needs a bit more). */
 export const KUMITE_REVEAL_MS = 3_800
@@ -138,7 +147,7 @@ function snapshot(m: Match) {
 const alive = (m: Match) => m.players.filter((p) => p.online && !m.sc[p.pid]?.out)
 
 export function start(m: Match, pack: Pack, seed: number, now: number, exclude: string[] = []): Match {
-  const max = m.s.mode === 'survival' ? Math.max(m.s.n, 50) : m.s.mode === 'kumite' ? Math.max(m.s.n, 80) : m.s.n
+  const max = m.s.mode === 'survival' ? Math.max(m.s.n, 50) : m.s.mode === 'kumite' || m.s.mode === 'raid' ? Math.max(m.s.n, 80) : m.s.n
   m.qids = pick(pack, max, seed, m.s.domains, exclude, m.s.diff ?? 'mix')
   const rand = rng(seed ^ 0x9e3779b9)
   m.order = dict()
@@ -150,6 +159,12 @@ export function start(m: Match, pack: Pack, seed: number, now: number, exclude: 
     m.k = newKumite(m.s.kLen ?? 'normal')
     m.kf = fighters.length === 2 ? [fighters[0].pid, fighters[1].pid] : undefined
   } else { m.k = undefined; m.kf = undefined }
+  if (m.s.mode === 'raid') {
+    const party = m.players.filter((p) => p.online).slice(0, 2)
+    m.rf = party.map((p) => p.pid)
+    m.r = newRaid(m.s.rLen ?? 'normal', m.s.boss ?? 0, party.length)
+    m.rlog = []
+  } else { m.r = undefined; m.rf = undefined; m.rlog = undefined }
   m.round += 1
   m.i = -1
   m.phase = 'countdown'
@@ -163,19 +178,33 @@ function nextQuestion(m: Match, now: number): void {
   const left = alive(m)
   const survivalOver = m.s.mode === 'survival' && (left.length === 0 || (m.players.length > 1 && left.length <= 1))
   const kumiteOver = m.s.mode === 'kumite' && (!m.kf || m.k?.winner != null)
-  if (m.i >= m.qids.length || survivalOver || kumiteOver) {
+  const raidOver = m.s.mode === 'raid' && (!m.rf?.length || !!m.r?.result)
+  if (m.i >= m.qids.length || survivalOver || kumiteOver || raidOver) {
     if (m.k && m.k.winner == null) m.k = { ...m.k, winner: decide(m.k) }
+    if (m.r && !m.r.result) m.r = escapeRaid(m.r)
     m.phase = 'end'; m.deadline = 0; m.active = null; return
   }
   m.phase = 'q'
   snapshot(m)
   m.qStart = now
-  m.deadline = now + m.s.secs * 1000
+  m.deadline = now + qLimit(m)
   m.active = m.s.mode === 'turns' && left.length ? left[m.i % left.length].pid : null
+  if (m.s.mode === 'raid' && m.r && m.rf) {
+    const on = (pid?: string) => !!pid && m.players.some((p) => p.pid === pid && p.online)
+    const other: 0 | 1 = m.r.turn === 0 ? 1 : 0
+    if (!on(m.rf[m.r.turn]) && on(m.rf[other]) && m.r.hearts[other] > 0) m.r = { ...m.r, turn: other } // shooter left: partner takes over
+    m.active = m.rf[m.r.turn] ?? m.rf[0]
+  }
+}
+
+/** Time to answer: an enraged raid boss gives you less. */
+export function qLimit(m: Match): number {
+  return Math.round(m.s.secs * 1000 * (m.s.mode === 'raid' && m.r?.enraged ? ENRAGED_TIME : 1))
 }
 
 export function eligible(m: Match): string[] {
   if (m.phase === 'q' && m.s.mode === 'kumite') return (m.kf ?? []).filter((pid) => m.players.some((p) => p.pid === pid && p.online))
+  if (m.phase === 'q' && m.s.mode === 'raid') return (m.rf ?? []).filter((pid) => m.players.some((p) => p.pid === pid && p.online))
   if (m.phase === 'q') return m.s.mode === 'turns' && m.active ? [m.active] : alive(m).map((p) => p.pid)
   if (m.phase === 'steal' && m.active) return [m.active]
   return []
@@ -195,7 +224,7 @@ export function answer(m: Match, pack: Pack, pid: string, choice: number[], ms: 
   if (m.ans[pid] && m.ans[pid].st === steal) return false
   if (now > m.deadline + 1500) return false
   const q = qOf(pack, m.qids[m.i])
-  const limit = steal ? STEAL_MS : m.s.secs * 1000
+  const limit = steal ? STEAL_MS : qLimit(m)
   const msC = Math.max(0, Math.min(limit, ms))
   const c = [...new Set(choice)].filter((k) => Number.isInteger(k) && k >= 0 && k < q.options.length)
   const ok = sameSet(c, q.answer)
@@ -203,7 +232,8 @@ export function answer(m: Match, pack: Pack, pid: string, choice: number[], ms: 
   const b = m.s.mode === 'wager' ? Math.min(3, Math.max(1, Math.round(bet))) : 1
   if (!steal) record(s, q.domain, ok, msC)
   else if (ok) s.stl += 1
-  const pts = points(m.s.mode, ok, msC, limit, steal, s.streak, b)
+  const bet_ = m.s.mode === 'raid' && pid !== m.active
+  const pts = bet_ ? 0 : points(m.s.mode, ok, msC, limit, steal, s.streak, b)
   s.pts += pts
   if (m.s.mode === 'survival' && !ok && !steal) { s.lives -= 1; if (s.lives <= 0) s.out = true }
   m.ans[pid] = { c, ms: msC, ok, pts, st: steal, bet: m.s.mode === 'wager' ? b : undefined }
@@ -221,8 +251,9 @@ export function tick(m: Match, pack: Pack, now: number): boolean {
   if (!done && now < m.deadline) return false
   const q = qOf(pack, m.qids[m.i])
   if (!steal) for (const pid of need) if (!m.ans[pid]) {
+    if (m.s.mode === 'raid' && pid !== m.active) continue // a missing bet is not a miss
     const s = m.sc[pid] || (m.sc[pid] = blank())
-    record(s, q.domain, false, m.s.secs * 1000)
+    record(s, q.domain, false, qLimit(m))
     if (m.s.mode === 'wager') s.pts -= 100
     if (m.s.mode === 'survival') { s.lives -= 1; if (s.lives <= 0) s.out = true }
   }
@@ -242,8 +273,19 @@ export function tick(m: Match, pack: Pack, now: number): boolean {
     const a0 = m.ans[m.kf[0]], a1 = m.ans[m.kf[1]]
     m.k = resolve(m.k, [!!a0?.ok, !!a1?.ok], [a0 ? a0.ms : null, a1 ? a1.ms : null])
   }
+  if (m.s.mode === 'raid' && m.r && m.rf) {
+    const shooter = m.active
+    const partner = m.rf.find((p) => p !== shooter)
+    const a = shooter ? m.ans[shooter] : undefined
+    const b = partner ? m.ans[partner] : undefined
+    m.r = resolveRaid(m.r, a ? a.ok : null, !!a && a.ok && a.ms <= qLimit(m) / 3, partner && b ? b.ok : null)
+    const picks: NonNullable<Match['rlog']>[number]['picks'] = []
+    if (shooter) picks.push({ pid: shooter, role: 'shot', c: a?.c ?? [], ok: !!a?.ok })
+    if (partner && b) picks.push({ pid: partner, role: 'bet', c: b.c, ok: b.ok })
+    m.rlog?.push({ qid: q.id, picks })
+  }
   m.phase = 'reveal'
-  m.deadline = now + (m.s.mode === 'kumite' ? (m.k?.winner != null ? KUMITE_KO_MS : KUMITE_REVEAL_MS) : REVEAL_MS)
+  m.deadline = now + (m.s.mode === 'kumite' ? (m.k?.winner != null ? KUMITE_KO_MS : KUMITE_REVEAL_MS) : m.s.mode === 'raid' ? (m.r?.result ? RAID_END_MS : RAID_REVEAL_MS) : REVEAL_MS)
   return true
 }
 
@@ -266,6 +308,7 @@ export function standings(m: Match | PublicState) {
 export function finish(m: Match) {
   const st = standings(m)
   if (st.length > 1) {
+    if (m.s.mode === 'raid') return // co-op: nobody wins against the partner
     const tie = m.s.mode === 'kumite' ? m.k?.winner == null : m.s.mode === 'survival' ? !st[0].out === !st[1].out && st[0].lives === st[1].lives && st[0].pts === st[1].pts : st[0].pts === st[1].pts
     if (!tie) { const k = st[0].nick.toLowerCase(); m.series[k] = (m.series[k] || 0) + 1 }
   }
@@ -302,6 +345,7 @@ export function publicState(m: Match, pack: Pack, now: number): PublicState {
     ans, sc, round: m.round, series: m.series, rem: m.deadline ? Math.max(0, m.deadline - now) : 0,
   }
   if (m.k && m.kf) out.kumite = { ...m.k, fighters: m.kf }
+  if (m.r && m.rf) out.raid = { ...m.r, party: m.rf }
   if (m.i >= 0 && m.i < m.qids.length && m.phase !== 'end') {
     const q0 = qOf(pack, m.qids[m.i])
     const lang = m.s.qlang ?? 'es'
@@ -309,6 +353,13 @@ export function publicState(m: Match, pack: Pack, now: number): PublicState {
     const q = t ? { ...q0, ...t } : q0
     out.q = { id: q.id, domain: q.domain, stem: q.stem, context: q.context, options: (m.order[q.id] || q.options.map((_, k) => k)).map((k) => ({ k, t: q.options[k] })), need: q.answer.length, difficulty: q.difficulty }
     if (reveal) { out.q.answer = q.answer; out.q.explanation = relabel(q.explanation, m.order[q.id] || q.options.map((_, k) => k)) }
+  }
+  if (m.phase === 'end' && m.rlog) {
+    const lg = m.s.qlang ?? 'es'
+    out.raidLog = m.rlog.filter((e) => e.picks.some((p) => !p.ok)).map((e): RaidLogItem => {
+      const x0 = qOf(pack, e.qid); const tx = lg !== 'orig' ? x0.tr?.[lg] : undefined; const x = tx ? { ...x0, ...tx } : x0
+      return { stem: x.stem, correct: x.answer.map((k) => x.options[k]), picks: e.picks.map((p) => ({ pid: p.pid, role: p.role, ok: p.ok, t: p.c.map((k) => x.options[k]).filter((t) => t !== undefined) })) }
+    })
   }
   if (m.phase === 'end') out.review = m.qids.slice(0, Math.max(0, m.i)).map((id) => { const x0 = qOf(pack, id); const lg = m.s.qlang ?? 'es'; const tx = lg !== 'orig' ? x0.tr?.[lg] : undefined; const x = tx ? { ...x0, ...tx } : x0; return { id, domain: x.domain, stem: x.stem, correct: x.answer.map((k) => x.options[k]) } })
   return out

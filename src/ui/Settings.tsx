@@ -1,10 +1,11 @@
 import { MODES } from '../core/engine'
 import { KUMITE_LENGTHS, type KumiteLength } from '../core/kumite'
+import { BOSSES, RAID_LENGTHS, bossHp, type RaidLength } from '../core/raid'
 import { difficultyCounts, domains, translatedCount } from '../core/packs'
 import type { DiffMode, Mode } from '../core/types'
 import { useStore, updateSettings } from '../store'
 
-const MODE_ICON: Record<Mode, string> = { classic: '⚔️', turns: '🔁', blitz: '⚡', survival: '❤️', wager: '🎲', kumite: '🥋' }
+const MODE_ICON: Record<Mode, string> = { classic: '⚔️', turns: '🔁', blitz: '⚡', survival: '❤️', wager: '🎲', kumite: '🥋', raid: '🎯' }
 const COUNTS = [5, 10, 15, 20, 30, 50]
 const SPEEDS: { label: string; secs: number }[] = [{ label: 'Rayo 5 s', secs: 5 }, { label: 'Rápido 10 s', secs: 10 }, { label: 'Normal 20 s', secs: 20 }, { label: 'Calma 30 s', secs: 30 }, { label: 'Examen 60 s', secs: 60 }, { label: 'Lento 90 s', secs: 90 }]
 
@@ -54,6 +55,21 @@ export function Settings({ onChange, compact = false }: { onChange?: () => void;
               {(Object.keys(KUMITE_LENGTHS) as KumiteLength[]).map((k) => <button key={k} aria-pressed={(st.kLen ?? 'normal') === k} onClick={() => upd({ kLen: k })}>{KUMITE_LENGTHS[k].name}</button>)}
             </div>
           </div>
+        ) : st.mode === 'raid' ? (
+          <>
+            <div className="stack">
+              <span className="label">Jefe</span>
+              <div className="seg" role="group" aria-label="Jefe">
+                {BOSSES.map((b, i) => <button key={b.id} aria-pressed={(st.boss ?? 0) === i} onClick={() => upd({ boss: i })}>{i + 1}. {b.name}</button>)}
+              </div>
+            </div>
+            <div className="stack">
+              <span className="label">Vida del jefe</span>
+              <div className="seg" role="group" aria-label="Vida del jefe">
+                {(Object.keys(RAID_LENGTHS) as RaidLength[]).map((k) => <button key={k} aria-pressed={(st.rLen ?? 'normal') === k} onClick={() => upd({ rLen: k })}>{RAID_LENGTHS[k].name} · {bossHp(k, st.boss ?? 0)}</button>)}
+              </div>
+            </div>
+          </>
         ) : (
         <div className="stack">
           <span className="label">{st.mode === 'survival' ? 'Preguntas (hasta que quede uno)' : 'Preguntas'}</span>

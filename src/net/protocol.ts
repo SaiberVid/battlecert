@@ -23,7 +23,7 @@ const AnswerPub = z.union([
 const ScorePub = z.object({ pts: z.number(), ok: z.number(), n: z.number(), ms: z.number(), streak: z.number(), best: z.number(), stl: z.number(), lives: z.number(), out: z.boolean(), dom: z.record(z.string(), z.tuple([z.number(), z.number()])) })
 export const PublicStateSchema = z.object({
   code: z.string().max(12),
-  settings: z.object({ mode: z.enum(['classic', 'turns', 'blitz', 'survival', 'wager', 'kumite']), n: z.number(), secs: z.number(), domains: z.array(Str).max(200), kLen: z.enum(['short', 'normal', 'epic']).optional(), qlang: z.enum(['orig', 'es', 'en']).optional(), diff: z.enum(['mix', 'ladder', 'easy', 'medium', 'hard']).optional(), packId: z.string().max(80), packName: z.string().max(120) }),
+  settings: z.object({ mode: z.enum(['classic', 'turns', 'blitz', 'survival', 'wager', 'kumite', 'raid']), n: z.number(), secs: z.number(), domains: z.array(Str).max(200), kLen: z.enum(['short', 'normal', 'epic']).optional(), rLen: z.enum(['short', 'normal', 'epic']).optional(), boss: z.number().int().min(0).max(2).optional(), qlang: z.enum(['orig', 'es', 'en']).optional(), diff: z.enum(['mix', 'ladder', 'easy', 'medium', 'hard']).optional(), packId: z.string().max(80), packName: z.string().max(120) }),
   players: z.array(z.object({ pid: z.string().max(20), nick: z.string().max(40), avatar: z.string().max(16), online: z.boolean(), fighter: z.string().max(20).optional(), cpu: z.boolean().optional() })).max(8),
   i: z.number(), total: z.number(), phase: z.enum(['lobby', 'countdown', 'q', 'steal', 'reveal', 'end']), active: z.string().max(20).nullable(),
   ans: z.record(z.string().max(20), AnswerPub), sc: z.record(z.string().max(20), ScorePub), round: z.number(), series: z.record(z.string().max(40), z.number()), rem: z.number(),
@@ -33,6 +33,13 @@ export const PublicStateSchema = z.object({
     fighters: z.tuple([z.string().max(20), z.string().max(20)]),
     last: z.object({ n: z.number(), type: z.enum(['clash', 'hit', 'stumble', 'start']), by: z.union([z.literal(0), z.literal(1)]).optional(), attack: z.enum(['quick', 'strong', 'special']).optional(), push: z.number(), guard: z.boolean().optional(), faster: z.union([z.literal(0), z.literal(1)]).optional(), ko: z.union([z.literal(0), z.literal(1)]).optional() }),
   }).optional(),
+  raid: z.object({
+    boss: z.number().int().min(0).max(2), hp: z.number(), max: z.number(), enraged: z.boolean(), heroes: z.union([z.literal(1), z.literal(2)]),
+    hearts: z.array(z.number()).max(2), rescue: z.array(z.number()).max(2), turn: z.union([z.literal(0), z.literal(1)]), hits: z.array(z.number()).max(2),
+    result: z.enum(['win', 'wipe', 'escape']).nullable(), party: z.array(z.string().max(20)).max(2),
+    last: z.object({ n: z.number(), type: z.enum(['start', 'hit', 'crit', 'miss', 'timeout']), by: z.union([z.literal(0), z.literal(1)]), dmg: z.number(), down: z.boolean().optional(), revive: z.union([z.literal(0), z.literal(1)]).optional(), bet: z.boolean().optional(), enrage: z.boolean().optional() }),
+  }).optional(),
+  raidLog: z.array(z.object({ stem: Str, correct: z.array(Str), picks: z.array(z.object({ pid: z.string().max(20), role: z.enum(['shot', 'bet']), t: z.array(Str), ok: z.boolean() })).max(2) })).max(500).optional(),
   review: z.array(z.object({ id: z.string().max(80), domain: Str, stem: Str, correct: z.array(Str) })).max(500).optional(),
 })
 export const HostMsg = z.discriminatedUnion('t', [

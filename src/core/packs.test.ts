@@ -103,3 +103,12 @@ describe('CCDV-F answer balance', () => {
     for (const q of (ccdv as unknown as Pack).questions) expect(q.explanation).not.toMatch(/\([a-e]\)/)
   })
 })
+
+describe('Spanish-keyed bank', () => {
+  it('imports preguntas/opciones/respuesta_correcta', () => {
+    const r = importText(JSON.stringify({ certificacion: 'MD-102', idioma: 'es', preguntas: [{ id: 'M-1', tema: 'Intune', pregunta: '¿Basta?', opciones: [{ id: 'A', texto: 'Sí' }, { id: 'B', texto: 'No' }], respuesta_correcta: 'B', feedback: 'No basta.' }] }))
+    expect(r.error).toBeUndefined()
+    expect(r.pack!.name).toBe('MD-102')
+    expect(r.pack!.questions[0]).toMatchObject({ domain: 'Intune', answer: [1], explanation: 'No basta.' })
+  })
+})

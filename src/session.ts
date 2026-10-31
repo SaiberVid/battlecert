@@ -7,7 +7,7 @@ import { AVATARS, cleanNick, dict } from './core/sanitize'
 import { GuestMsg, HostMsg, MAX_MSG_BYTES, MAX_STATE_BYTES, RateLimiter, randomCode, randomPin, sizeOf } from './net/protocol'
 import { hostRoom, joinRoom, type GuestHandle, type HostHandle } from './net/transport'
 import { newSecret } from './net/relay'
-import { S, blankLocal, storage, useStore, type Result } from './store'
+import { S, blankLocal, storage, updateSettings, useStore, type Result } from './store'
 import { z } from 'zod'
 import { cpuAnswer, cpuFor } from './core/kumite'
 import { FIGHTERS, fighterById, isFighter } from './kumite/roster'
@@ -242,6 +242,16 @@ export function kumiteNext() {
   startMatch()
 }
 
+/** CERT RAID: after a win, on to the next boss of the campaign; otherwise try the same boss again. */
+export function raidNext() {
+  if (!M) return
+  const r = M.r
+  const boss = r?.result === 'win' ? ((r.boss + 1) % 3) : (r?.boss ?? 0)
+  M.s = { ...M.s, boss }
+  updateSettings({ boss })
+  rematch()
+}
+
 export function setFighter(id: string) {
   if (!isFighter(id)) return
   useStore.setState({ fighter: id })
@@ -347,7 +357,7 @@ export function myTurn(): boolean {
   const steal = P.phase === 'steal'
   const sc = P.sc[myPid]
   if (P.settings.mode === 'survival' && sc?.out) return false
-  const elig = steal || (P.settings.mode === 'turns' && P.active) ? [P.active] : P.players.filter((p) => p.online).map((p) => p.pid)
+  const elig = steal || (P.settings.mode === 'turns' && P.active) ? [P.active] : P.raid ? P.raid.party : P.kumite ? P.kumite.fighters : P.players.filter((p) => p.online).map((p) => p.pid)
   if (!elig.includes(myPid)) return false
   const a = P.ans[myPid]
   return !(a && a.st === steal) && !local.sent

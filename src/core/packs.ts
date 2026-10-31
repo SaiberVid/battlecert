@@ -321,6 +321,15 @@ export function importText(text: string, meta: { name?: string; license?: string
   if (t.startsWith('{') || t.startsWith('[')) {
     let d: unknown
     try { d = JSON.parse(t) } catch (e) { return { errors: [], dups: 0, kind: 'json', error: 'JSON no válido: ' + (e as Error).message } }
+    // Spanish-keyed banks: {"certificacion", "idioma", "preguntas": [{"pregunta", "opciones": [{"id","texto"}], "respuesta_correcta", "tema", "feedback"}]}
+    if (d && typeof d === 'object' && !Array.isArray(d) && Array.isArray((d as AnyObj).preguntas) && !(d as AnyObj).questions) {
+      const dd = d as AnyObj
+      d = { ...dd, name: dd.name ?? dd.nombre ?? dd.certificacion ?? dd.titulo, lang: dd.lang ?? dd.idioma, questions: (dd.preguntas as AnyObj[]).map((q) => q && typeof q === 'object' ? {
+        ...q, question: q.question ?? q.pregunta ?? q.enunciado, domain: q.domain ?? q.tema ?? q.dominio,
+        options: Array.isArray(q.opciones) ? (q.opciones as unknown[]).map((o) => o && typeof o === 'object' && 'texto' in (o as AnyObj) ? { id: (o as AnyObj).id, text: (o as AnyObj).texto } : o) : q.options,
+        answer: q.answer ?? q.respuesta_correcta ?? q.respuestas_correctas ?? q.respuesta, explanation: q.explanation ?? q.explicacion ?? q.feedback,
+      } : q) }
+    }
     if (Array.isArray(d)) { kind = 'json-array'; raw = fromArrayLike(d as AnyObj[]) }
     else if (d && typeof d === 'object' && Array.isArray((d as AnyObj).questions)) {
       const dd = d as AnyObj

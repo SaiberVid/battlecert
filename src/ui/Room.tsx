@@ -3,8 +3,10 @@ import { AnimatePresence, motion } from 'motion/react'
 import * as E from '../core/engine'
 import { REACTIONS } from '../core/sanitize'
 import type { PublicState } from '../core/types'
-import { applySettings, choose, joinUrl, kick, kumiteNext, leave, myTurn, react, rematch, setBet, setFighter, skip, startMatch } from '../session'
+import { applySettings, choose, joinUrl, kick, kumiteNext, leave, myTurn, raidNext, react, rematch, setBet, setFighter, skip, startMatch } from '../session'
 import { Arena } from '../kumite/Arena'
+import { RaidArena } from '../raid/Arena'
+import { BOSSES, HERO_NAMES } from '../core/raid'
 import { FighterPicker, Portrait } from '../kumite/Hud'
 import { ksfx } from '../kumite/audio'
 import { FIGHTERS, fighterById } from '../kumite/roster'
@@ -21,7 +23,7 @@ export function Room() {
   useSounds(P)
   if (!P) return <Connecting role={role} code={code} />
   if (P.phase === 'lobby') return <Lobby P={P} />
-  if (P.phase === 'end') return P.kumite ? <KumiteEnd P={P} /> : <End P={P} />
+  if (P.phase === 'end') return P.kumite ? <KumiteEnd P={P} /> : P.raid ? <RaidEnd P={P} /> : <End P={P} />
   return <Play P={P} />
 }
 
@@ -78,14 +80,14 @@ function useSounds(P: PublicState | null) {
     if (P.phase === 'lobby' && p.players !== undefined && P.players.length > p.players) sfx.join()
     if (P.phase !== p.phase || P.i !== p.i) {
       if (P.phase === 'steal') sfx.steal()
-      if (P.phase === 'reveal' && myPid && P.settings.mode !== 'kumite') {
+      if (P.phase === 'reveal' && myPid && P.settings.mode !== 'kumite' && P.settings.mode !== 'raid') {
         const a = P.ans[myPid]
         if (a && 'ok' in a) { if (a.ok) sfx.correct(P.sc[myPid]?.streak || 1); else sfx.wrong() }
       }
       if (P.phase === 'end' && myPid && P.kumite) {
         const won = P.kumite.winner !== null && P.kumite.fighters[P.kumite.winner] === myPid
         setTimeout(() => (won ? ksfx.win : ksfx.lose)(), 1700)
-      } else if (P.phase === 'end' && myPid) {
+      } else if (P.phase === 'end' && myPid && !P.raid) {
         const st = E.standings(P)
         const won = st.length < 2 ? (st[0]?.ok || 0) / Math.max(1, st[0]?.n || 1) >= .7 : st[0]?.pid === myPid && st[0].pts !== st[1]?.pts
         if (won) sfx.fanfare(); else sfx.lose()
@@ -146,6 +148,7 @@ function Lobby({ P }: { P: PublicState }) {
           {P.players.length < 2 && <p className="small muted">Esperando a que entre alguien…</p>}
         </section>
         {P.settings.mode === 'kumite' && <LobbyFighters P={P} />}
+        {P.settings.mode === 'raid' && <LobbyRaid P={P} />}
       </div>
 
       <section className="panel" aria-labelledby="set-h">
@@ -235,9 +238,9 @@ function Play({ P }: { P: PublicState }) {
     return () => removeEventListener('keydown', on)
   }, [q, reveal, role])
 
-  if (P.phase === 'countdown') return <>{mode === 'kumite' && <Arena P={P} />}<Countdown P={P} left={left} /></>
+  if (P.phase === 'countdown') return <>{mode === 'kumite' && <Arena P={P} />}{mode === 'raid' && <RaidArena P={P} />}<Countdown P={P} left={left} /></>
   if (!q) return null
-  const total = steal ? E.STEAL_MS : P.settings.secs * 1000
+  const total = steal ? E.STEAL_MS : Math.round(P.settings.secs * 1000 * (mode === 'raid' && P.raid?.enraged ? 0.8 : 1))
   const activeIdx = P.players.findIndex((p) => p.pid === P.active)
   const active = P.players[activeIdx]
   const mine = myPid ? P.ans[myPid] : undefined
@@ -245,15 +248,15 @@ function Play({ P }: { P: PublicState }) {
   const sc = myPid ? P.sc[myPid] : undefined
   const out = mode === 'survival' && sc?.out
 
-  const kumite = mode === 'kumite'
+  const kumite = mode === 'kumite' || mode === 'raid'
   return (
     <div className={'stage' + (kumite ? ' kumite' : '')}>
-      {kumite && <div className="kfight"><Arena P={P} /></div>}
+      {kumite && <div className="kfight">{mode === 'raid' ? <RaidArena P={P} /> : <Arena P={P} />}</div>}
       <div className="stack qcol" style={{ gap: 12 }}>
         <div className="hud">
-          <Ring left={left} total={reveal ? (mode === 'kumite' ? E.KUMITE_REVEAL_MS : E.REVEAL_MS) : total} calm={reveal} />
+          <Ring left={left} total={reveal ? (mode === 'kumite' ? E.KUMITE_REVEAL_MS : mode === 'raid' ? E.RAID_REVEAL_MS : E.REVEAL_MS) : total} calm={reveal} />
           <div className="meta">
-            <div className="row between small"><span className="label">{kumite ? `Asalto ${P.i + 1}` : `Pregunta ${P.i + 1}`}{mode === 'survival' || kumite ? '' : ' de ' + P.total}</span><span className="label" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '55%' }}>{q.domain}</span></div>
+            <div className="row between small"><span className="label">{kumite ? `${mode === 'raid' ? 'Ronda' : 'Asalto'} ${P.i + 1}` : `Pregunta ${P.i + 1}`}{mode === 'survival' || kumite ? '' : ' de ' + P.total}</span><span className="label" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '55%' }}>{q.domain}</span></div>
             <div className="progress" aria-hidden="true"><i style={{ width: `${((P.i + (reveal ? 1 : 0)) / Math.max(1, P.total)) * 100}%` }} /></div>
             <div className="row small" style={{ gap: 8 }}>
               <span className="chip">{E.MODES[mode].name}</span>
@@ -264,6 +267,7 @@ function Play({ P }: { P: PublicState }) {
           </div>
         </div>
 
+        {mode === 'raid' && P.raid && !reveal && <RaidTurn P={P} />}
         {(mode === 'turns' || steal) && active && !reveal && (
           <div className="banner" style={{ ['--c' as string]: colorOf(activeIdx) }} role="status">
             {steal ? '⚡ ¡Robo! ' : ''}{active.pid === myPid ? (steal ? 'Puedes robar: responde en 10 s' : 'Te toca a ti') : `Turno de ${active.avatar} ${active.nick}`}
@@ -318,12 +322,12 @@ function Status({ P, canAnswer, out }: { P: PublicState; canAnswer: boolean; out
   let text = ''
   if (out) text = '💀 Estás eliminado. Mira cómo acaba.'
   else if (canAnswer) text = need > 1 && local.chosen.length ? `Elegidas ${local.chosen.length} de ${need}` : ''
-  else if (myPid && (P.ans[myPid] || local.sent)) text = '🔒 Respuesta enviada. Esperando al resto…'
+  else if (myPid && (P.ans[myPid] || local.sent)) text = P.raid && P.active !== myPid ? '🔒 Apuesta guardada. Se verá al revelar.' : '🔒 Respuesta enviada. Esperando al resto…'
   else text = 'Mira y aprende: no es tu turno.'
   return (
     <div className="row between small muted" aria-live="polite">
       <span>{text}</span>
-      <span className="mono">{done}/{P.players.filter((p) => p.online).length} han respondido</span>
+      <span className="mono">{done}/{P.raid ? P.raid.party.length : P.players.filter((p) => p.online).length} han respondido</span>
     </div>
   )
 }
@@ -335,16 +339,18 @@ function Reveal({ P, left }: { P: PublicState; left: number }) {
   const full = a && 'ok' in a ? a : undefined
   const isTurn = P.settings.mode === 'turns'
   const kind = full ? (full.ok ? 'ok' : 'bad') : 'none'
-  const title = full ? (full.ok ? (full.st ? '¡Robo conseguido!' : '¡Correcto!') : 'Fallaste') : isTurn ? 'Resultado' : 'Sin respuesta'
+  const raidBet = !!P.raid && !!myPid && P.active !== myPid && P.raid.party.includes(myPid)
+  const title = P.raid && (!myPid || !P.raid.party.includes(myPid)) ? 'Resultado' : raidBet ? (full ? (full.ok ? 'Tu apuesta era buena' : 'Tu apuesta fallaba') : 'No apostaste') : full ? (full.ok ? (full.st ? '¡Robo conseguido!' : '¡Correcto!') : 'Fallaste') : isTurn ? 'Resultado' : 'Sin respuesta'
   return (
     <motion.div className="stack" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
       <div className={'result ' + kind} role="status">
         <span aria-hidden="true">{kind === 'ok' ? '🎉' : kind === 'bad' ? '😬' : '⏱'}</span>
         <span>{title}{full?.ok && full.ms ? <span className="small" style={{ fontWeight: 400 }}> en {fmtMs(full.ms)}</span> : null}</span>
-        {full && <span className="pts">{full.pts >= 0 ? '+' : ''}{full.pts}</span>}
+        {full && !P.raid && <span className="pts">{full.pts >= 0 ? '+' : ''}{full.pts}</span>}
       </div>
       {isTurn && <OthersLine P={P} />}
       {P.kumite && <KumiteLine P={P} />}
+      {P.raid && <RaidLine P={P} />}
       {P.q?.explanation && <div className="explain"><span className="label">Por qué</span><br />{P.q.explanation}</div>}
       <div className="row between">
         <div className="reactbar" role="group" aria-label="Reacciones">
@@ -409,7 +415,7 @@ function Board({ P }: { P: PublicState }) {
 function Countdown({ P, left }: { P: PublicState; left: number }) {
   const n = Math.ceil(left / 1000)
   const last = useRef(-1)
-  const kumite = P.settings.mode === 'kumite'
+  const kumite = P.settings.mode === 'kumite' || P.settings.mode === 'raid'
   useEffect(() => { if (n !== last.current && n >= 1 && n <= 3) (kumite ? ksfx.count : sfx.count)(n); last.current = n }, [n, kumite])
   useEffect(() => () => { if (kumite) ksfx.count(0) }, [kumite])
   return (
@@ -420,6 +426,95 @@ function Countdown({ P, left }: { P: PublicState; left: number }) {
         </AnimatePresence>
         <p className="countsub">{P.i < 0 ? `${E.MODES[P.settings.mode].name} · ${P.settings.packName}` : 'Preparados…'}</p>
       </div>
+    </div>
+  )
+}
+
+function RaidTurn({ P }: { P: PublicState }) {
+  const myPid = useStore((s) => s.myPid)
+  const r = P.raid!
+  const shooter = P.players.find((p) => p.pid === P.active)
+  const mine = myPid ? r.party.indexOf(myPid) : -1
+  const down = mine >= 0 && r.hearts[mine] === 0
+  const text = mine < 0 ? `Turno de ${shooter?.nick ?? '—'}. Mira y aprende.`
+    : P.active === myPid ? '🎯 Te toca disparar: si aciertas, daño al jefe; si fallas, pierdes un corazón.'
+    : down ? `💀 Estás K.O. Acierta tu apuesta para que te rescaten (${r.rescue[mine]}/3).`
+    : `🤫 Dispara ${shooter?.nick ?? 'tu compañero'}. Apuesta en secreto qué habrías elegido: se verá al revelar.`
+  return <div className="banner" role="status" style={{ ['--c' as string]: P.active === myPid ? '#ffd23d' : '#8a7dff' }}>{text}</div>
+}
+
+function RaidLine({ P }: { P: PublicState }) {
+  const myPid = useStore((s) => s.myPid)
+  const r = P.raid!
+  const q = P.q
+  const letter = (c: number[]) => c.map((k) => 'ABCDEFGH'[q?.options.findIndex((o) => o.k === k) ?? -1] ?? '?').join(', ')
+  return (
+    <div className="raidline" role="status">
+      {r.party.map((pid, i) => {
+        const p = P.players.find((x) => x.pid === pid)
+        const a = P.ans[pid]
+        const full = a && 'ok' in a ? a : undefined
+        const shooter = pid === P.active
+        const who = `${p?.nick ?? HERO_NAMES[i]}${pid === myPid ? ' (tú)' : ''}`
+        return (
+          <div key={pid} className={'pick kl ' + (full ? (full.ok ? 'ok' : 'bad') : 'none')}>
+            <span aria-hidden="true">{shooter ? '🎯' : '🤫'}</span>
+            <span><b>{who}</b> {shooter ? (full ? `disparó con la ${letter(full.c)}` : 'no disparó a tiempo') : (full ? `habría elegido la ${letter(full.c)}` : 'no apostó')} {full ? (full.ok ? '✓' : '✗') : ''}</span>
+          </div>
+        )
+      })}
+      {r.last.type === 'crit' && <span className="small muted">Crítico: respuesta en el primer tercio del tiempo (doble daño).</span>}
+    </div>
+  )
+}
+
+function LobbyRaid({ P }: { P: PublicState }) {
+  const online = P.players.filter((p) => p.online)
+  const boss = BOSSES[P.settings.boss ?? 0] ?? BOSSES[0]
+  return (
+    <section className="panel stack">
+      <span className="label">CERT RAID · {boss.name}</span>
+      <p className="small">Cooperativo: por turnos, quien dispara responde; el compañero apuesta en secreto. Aciertas, daño al jefe; fallas, pierdes un corazón. Si caes, 3 apuestas acertadas te rescatan.</p>
+      <p className="small muted">Héroes: {online.slice(0, 2).map((p, i) => `${HERO_NAMES[i]} = ${p.nick}`).join(' · ') || '—'}{online.length > 2 ? ' · los demás miran' : ''}{online.length === 1 ? ' · en solitario tienes 5 corazones' : ''}</p>
+    </section>
+  )
+}
+
+function RaidEnd({ P }: { P: PublicState }) {
+  const role = useStore((s) => s.role)
+  const myPid = useStore((s) => s.myPid)
+  const r = P.raid!
+  const boss = BOSSES[r.boss] ?? BOSSES[0]
+  const last = r.boss >= BOSSES.length - 1
+  const title = r.result === 'win' ? (last ? '🏆 ¡Campaña completada!' : '¡Jefe derrotado!') : r.result === 'wipe' ? 'Game over' : `${boss.name} escapa`
+  const nick = (pid: string) => { const i = r.party.indexOf(pid); const p = P.players.find((x) => x.pid === pid); return (p?.nick ?? HERO_NAMES[i]) + (pid === myPid ? ' (tú)' : '') }
+  return (
+    <div className="stack" style={{ gap: 16 }}>
+      <RaidArena P={P} />
+      <section className="panel" style={{ alignItems: 'center', textAlign: 'center' }}>
+        <span className="label">CERT RAID · Jefe {r.boss + 1}/{BOSSES.length}</span>
+        <h1>{title}</h1>
+        <p className="muted">{r.result === 'win' ? `Le habéis quitado ${r.max} puntos de vida.` : r.result === 'wipe' ? `${boss.name} se queda con ${r.hp}/${r.max} de vida.` : 'Se acabaron las preguntas antes de tumbarlo.'} Impactos: {r.party.map((pid, i) => `${nick(pid)} ${r.hits[i]}`).join(' · ')}.</p>
+        <div className="row" style={{ justifyContent: 'center' }}>
+          {role !== 'guest' && <button className="btn big accent" onClick={raidNext}>{r.result === 'win' ? (last ? 'Empezar de nuevo' : `Siguiente jefe: ${BOSSES[r.boss + 1].name} →`) : 'Reintentar'}</button>}
+          {role === 'guest' && <span className="muted small">El anfitrión lanza el siguiente combate.</span>}
+          <button className="btn" onClick={leave}>Salir</button>
+        </div>
+      </section>
+      {P.raidLog && P.raidLog.length > 0 && (
+        <section className="panel stack">
+          <span className="label">Dónde fallasteis ({P.raidLog.length})</span>
+          <p className="small muted">Lo que eligió cada uno y la respuesta buena: aquí se aprende de los fallos del compañero.</p>
+          {P.raidLog.map((e, i) => (
+            <div key={i} className="stack" style={{ gap: 4, borderTop: '1px solid var(--line)', paddingTop: 8 }}>
+              <b style={{ fontWeight: 600 }}>{e.stem}</b>
+              {e.picks.map((p) => <span key={p.pid} className="small" style={{ color: p.ok ? 'var(--ok)' : 'var(--bad)' }}>{p.ok ? '✓' : '✗'} {nick(p.pid)} {p.role === 'shot' ? 'disparó' : 'apostó'}: {p.t.join(' · ') || 'sin respuesta'}</span>)}
+              <span className="small">✓ Correcta: {e.correct.join(' · ')}</span>
+            </div>
+          ))}
+        </section>
+      )}
+      <End P={P} compact />
     </div>
   )
 }

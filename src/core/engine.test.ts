@@ -229,3 +229,40 @@ describe('relabel', () => {
     expect(E.relabel('Usa la (e) del contrato', [0, 1, 2, 3])).toBe('Usa la (e) del contrato')
   })
 })
+
+describe('raid mode', () => {
+  it('turns, secret bets, damage, hearts and the end-of-raid log', () => {
+    const { m, ps, t: t0 } = setup('raid', 2, 20)
+    let t = t0
+    expect(m.r).toMatchObject({ heroes: 2, hp: 14, hearts: [3, 3] })
+    expect(m.active).toBe(ps[0].pid)
+    expect(E.eligible(m)).toEqual([ps[0].pid, ps[1].pid])
+    // shooter right (slow), partner bets wrong
+    E.answer(m, pack, ps[1].pid, wrong(m), 2000, t)
+    expect(E.publicState(m, pack, t).ans[ps[1].pid]).toEqual({ done: 1, st: false }) // the bet stays secret
+    E.answer(m, pack, ps[0].pid, right(m), 9000, t)
+    E.tick(m, pack, t)
+    expect(m.phase).toBe('reveal')
+    expect(m.r).toMatchObject({ hp: 13, turn: 1, last: { type: 'hit', by: 0, bet: false } })
+    expect(m.sc[ps[1].pid].pts).toBe(0) // bets give no points
+    t += E.RAID_REVEAL_MS; E.tick(m, pack, t)
+    expect(m.active).toBe(ps[1].pid)
+    // shooter 2 times out: loses a heart
+    t += 10_000 + 1; E.tick(m, pack, t)
+    expect(m.r!.hearts).toEqual([3, 2])
+    expect(m.r!.last.type).toBe('timeout')
+    // finish: end state carries the log of failed questions with each hero's pick
+    m.r = { ...m.r!, result: 'win' }
+    t += E.RAID_END_MS; E.tick(m, pack, t)
+    expect(m.phase).toBe('end')
+    const P = E.publicState(m, pack, t)
+    expect(P.raid?.party).toEqual([ps[0].pid, ps[1].pid])
+    expect(P.raidLog).toHaveLength(2)
+    expect(P.raidLog![0].picks.map((p) => [p.role, p.ok])).toEqual([['shot', true], ['bet', false]])
+  })
+  it('a solo raid has one hero with more hearts', () => {
+    const { m, ps } = setup('raid', 1, 10)
+    expect(m.r).toMatchObject({ heroes: 1, hearts: [5] })
+    expect(m.active).toBe(ps[0].pid)
+  })
+})

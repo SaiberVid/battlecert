@@ -48,7 +48,7 @@ export interface Pack {
   questions: Question[]
 }
 
-export type Mode = 'classic' | 'turns' | 'blitz' | 'survival' | 'wager' | 'kumite'
+export type Mode = 'classic' | 'turns' | 'blitz' | 'survival' | 'wager' | 'kumite' | 'raid'
 
 export interface MatchSettings {
   mode: Mode
@@ -60,6 +60,9 @@ export interface MatchSettings {
   qlang?: 'orig' | QLang
   /** CERT KUMITE platform length */
   kLen?: 'short' | 'normal' | 'epic'
+  /** CERT RAID boss health and which boss of the campaign (0–2) */
+  rLen?: 'short' | 'normal' | 'epic'
+  boss?: number
   packId: string
   packName: string
 }
@@ -125,4 +128,9 @@ export interface PublicState {
   }
   review?: { id: string; domain: string; stem: string; correct: string[] }[]
   kumite?: import('./kumite').KumiteState & { fighters: [string, string] }
+  raid?: import('./raid').RaidState & { party: string[] }
+  /** CERT RAID end screen: questions somebody got wrong, with what each hero picked */
+  raidLog?: RaidLogItem[]
 }
+
+export interface RaidLogItem { stem: string; correct: string[]; picks: { pid: string; role: 'shot' | 'bet'; t: string[]; ok: boolean }[] }

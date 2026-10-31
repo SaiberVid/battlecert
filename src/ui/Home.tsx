@@ -113,7 +113,7 @@ export function Home() {
           <label className="switch"><input type="checkbox" checked={usePin} onChange={(e) => { set({ usePin: e.target.checked }); storage.set('usePin', e.target.checked) }} /> <span>Proteger la sala con PIN <span className="muted small">(va incluido en el QR y el enlace)</span></span></label>
           <div className="row">
             <button className="btn big accent grow" disabled={busy} onClick={() => void doCreate(false)}>Crear sala</button>
-            <button className="btn big" disabled={busy} onClick={() => void doCreate(true)}>{mode === 'kumite' ? 'Torneo vs CPU' : 'Practicar solo'}</button>
+            <button className="btn big" disabled={busy} onClick={() => void doCreate(true)}>{mode === 'kumite' ? 'Torneo vs CPU' : mode === 'raid' ? 'Raid en solitario' : 'Practicar solo'}</button>
           </div>
         </section>
       </div>

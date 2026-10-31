@@ -84,3 +84,22 @@ describe('translations', () => {
     for (const term of ['Message Batches API', 'tool_choice', 'CLAUDE.md', 'PreToolUse', 'stop_reason']) expect(all).toContain(term)
   })
 })
+
+describe('study-bank JSON', () => {
+  it('imports options as {id,text}, correct_answers letters and feedback.explanation', () => {
+    const r = importText(JSON.stringify({ title: 'Banco', questions: [{ id: 'X-1', domain: 'API', question: '¿Qué revisas?', options: [{ id: 'A', text: 'Tokens' }, { id: 'B', text: 'Credencial' }], correct_answers: ['B'], feedback: { correct: 'Bien', explanation: 'Revisa la key.' } }] }))
+    expect(r.error).toBeUndefined()
+    expect(r.pack!.name).toBe('Banco')
+    expect(r.pack!.questions[0].answer).toEqual([1])
+    expect(r.pack!.questions[0].explanation).toBe('Revisa la key.')
+  })
+})
+
+describe('CCDV-F answer balance', () => {
+  it('the right answer is not given away by being the longest option', () => {
+    const qs = (ccdv as unknown as Pack).questions.filter((q) => q.answer.length === 1)
+    const longest = qs.filter((q) => { const L = q.options.map((o) => o.length); return L[q.answer[0]] > Math.max(...L.filter((_, i) => i !== q.answer[0])) }).length
+    expect(longest / qs.length).toBeLessThan(0.35)
+    for (const q of (ccdv as unknown as Pack).questions) expect(q.explanation).not.toMatch(/\([a-e]\)/)
+  })
+})

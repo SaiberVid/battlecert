@@ -206,7 +206,7 @@ function fromArrayLike(list: AnyObj[]): RawQ[] {
       if (arr.length && Array.isArray(arr[0])) { keys = arr.map((o) => String((o as unknown[])[0])); opts = arr.map((o) => (o as unknown[])[1]) }
       else if (arr.length && arr[0] && typeof arr[0] === 'object' && 'text' in (arr[0] as AnyObj)) { keys = arr.map((o, i) => String((o as AnyObj).id ?? LET[i])); opts = arr.map((o) => (o as AnyObj).text) }
     } else if (opts && typeof opts === 'object') { keys = Object.keys(opts); opts = keys.map((k) => (opts as AnyObj)[k]) }
-    let ans: unknown = q.answer ?? q.correct ?? q.k ?? q.answers
+    let ans: unknown = q.answer ?? q.correct ?? q.k ?? q.answers ?? q.correct_answers ?? q.correctAnswers
     const ansArr: unknown[] = Array.isArray(ans) ? ans : String(ans ?? '').split(/[\s,;|]+/).filter(Boolean)
     const idx = ansArr.map((a) => {
       if (keys) { const k = keys.findIndex((x) => x.toLowerCase() === String(a).toLowerCase()); if (k >= 0) return k }
@@ -214,7 +214,7 @@ function fromArrayLike(list: AnyObj[]): RawQ[] {
       const s = String(a).trim()
       return /^\d+$/.test(s) ? Number(s) : LET.indexOf(s.toLowerCase())
     })
-    let expl: unknown = q.explanation ?? q.rationale ?? q.e ?? ''
+    let expl: unknown = q.explanation ?? q.rationale ?? q.e ?? (q.feedback && typeof q.feedback === 'object' ? (q.feedback as AnyObj).explanation ?? (q.feedback as AnyObj).correct : q.feedback) ?? ''
     if (expl && typeof expl === 'object') expl = (expl as AnyObj).short ?? ''
     let explanation = String(expl ?? '')
     if (keys) explanation = explanation.replace(/\{([a-h])\}/gi, '($1)')

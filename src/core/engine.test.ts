@@ -221,3 +221,11 @@ describe('question language', () => {
     expect(run('en').stem.startsWith('ES ')).toBe(false)
   })
 })
+
+describe('relabel', () => {
+  it('rewrites option letters to the shuffled on-screen order', () => {
+    // on screen: original 2, 0, 3, 1 → original (a) is shown as B, (c) as A
+    expect(E.relabel('Correct ((a)). (c) is wrong, and so are (B, D).', [2, 0, 3, 1])).toBe('Correct (B). (A) is wrong, and so are (D, C).')
+    expect(E.relabel('Usa la (e) del contrato', [0, 1, 2, 3])).toBe('Usa la (e) del contrato')
+  })
+})

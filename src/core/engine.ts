@@ -272,6 +272,20 @@ export function finish(m: Match) {
 }
 
 /** Everything screens need, without leaking the answer before the reveal. */
+/**
+ * Explanations often cite options by letter ("(a)", "(B, C)"), but options are shuffled on screen.
+ * Rewrites those references to the letters the players actually see.
+ */
+export function relabel(text: string, order: number[]): string {
+  const L = 'ABCDEFGH'
+  return text.replace(/\(\(?([a-h](?:\s*(?:,|y|and|o|or)\s*[a-h])*)\)?\)/gi, (all, inner: string) => {
+    const letters = inner.match(/[a-h]/gi)!
+    const idx = letters.map((c) => c.toLowerCase().charCodeAt(0) - 97)
+    if (idx.some((i) => i >= order.length)) return all
+    return '(' + inner.replace(/[a-h]/gi, (c) => L[order.indexOf(c.toLowerCase().charCodeAt(0) - 97)]) + ')'
+  })
+}
+
 export function publicState(m: Match, pack: Pack, now: number): PublicState {
   const reveal = m.phase === 'reveal' || m.phase === 'end'
   const playing = m.phase === 'q' || m.phase === 'steal'
@@ -294,7 +308,7 @@ export function publicState(m: Match, pack: Pack, now: number): PublicState {
     const t = lang !== 'orig' ? q0.tr?.[lang] : undefined
     const q = t ? { ...q0, ...t } : q0
     out.q = { id: q.id, domain: q.domain, stem: q.stem, context: q.context, options: (m.order[q.id] || q.options.map((_, k) => k)).map((k) => ({ k, t: q.options[k] })), need: q.answer.length, difficulty: q.difficulty }
-    if (reveal) { out.q.answer = q.answer; out.q.explanation = q.explanation }
+    if (reveal) { out.q.answer = q.answer; out.q.explanation = relabel(q.explanation, m.order[q.id] || q.options.map((_, k) => k)) }
   }
   if (m.phase === 'end') out.review = m.qids.slice(0, Math.max(0, m.i)).map((id) => { const x0 = qOf(pack, id); const lg = m.s.qlang ?? 'es'; const tx = lg !== 'orig' ? x0.tr?.[lg] : undefined; const x = tx ? { ...x0, ...tx } : x0; return { id, domain: x.domain, stem: x.stem, correct: x.answer.map((k) => x.options[k]) } })
   return out

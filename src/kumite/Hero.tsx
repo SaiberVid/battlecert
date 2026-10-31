@@ -32,7 +32,7 @@ export function KumiteHero() {
           <button className="kbtn" disabled={busy} onClick={() => void go(true)}>🥋 Torneo vs CPU</button>
           <button className="kbtn alt" disabled={busy} onClick={() => void go(false)}>👊 Retar a un amigo</button>
           <button className="khero-me" onClick={() => setPick(!pick)} aria-expanded={pick}>
-            <Portrait f={f} size={44} />
+            <Portrait f={f} size={34} />
             <span><small>Tu luchador</small><b>{f.name}</b></span>
             <span aria-hidden="true">{pick ? '▲' : '▼'}</span>
           </button>

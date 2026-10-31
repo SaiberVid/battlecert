@@ -10,6 +10,7 @@ import { unlockAudio, sfx } from '../sound'
 import { Settings } from './Settings'
 import { FighterPicker } from '../kumite/Hud'
 import { KumiteHero } from '../kumite/Hero'
+import { RaidHero } from '../raid/Hero'
 import { setFighter } from '../session'
 import { fmtMs } from './common'
 
@@ -76,7 +77,7 @@ export function Home() {
         <p>Crea una sala, comparte el QR y responde tests contra tus amigos, de cualquier certificación o asignatura. Gratis, sin cuentas y sin servidores: la partida vive en tu navegador.</p>
       </motion.div>
 
-      {!invite && <KumiteHero />}
+      {!invite && <div className="promos"><KumiteHero /><RaidHero /></div>}
 
       {invite && (
         <section className="panel hero" aria-labelledby="inv-h">

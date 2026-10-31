@@ -8,8 +8,9 @@ import { FIGHTERS, isFighter } from './kumite/roster'
 import ccdv from './data/claude-ccdv-f.json'
 import ccarf from './data/claude-ccar-f.json'
 import ccarp from './data/claude-ccar-p.json'
+import md102 from './data/ms-md-102.json'
 
-export const BUILTIN: Pack[] = [ccdv, ccarf, ccarp].map((p) => ({ ...(p as unknown as Pack), format: 'battlecert/1', builtIn: true }))
+export const BUILTIN: Pack[] = [ccdv, ccarf, ccarp, md102].map((p) => ({ ...(p as unknown as Pack), format: 'battlecert/1', builtIn: true }))
 
 // ---------- storage (best effort: private windows can refuse it)
 export const storage = {

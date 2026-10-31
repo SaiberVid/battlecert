@@ -485,7 +485,7 @@ test.describe('CERT RAID', () => {
     await profile(p, 'David')
     await p.locator('.mode', { hasText: 'CERT RAID' }).click()
     await p.getByRole('group', { name: 'Vida del jefe' }).getByRole('button', { name: /Corto/ }).click()
-    await p.getByRole('button', { name: 'Raid en solitario' }).click()
+    await p.getByRole('button', { name: 'Raid en solitario', exact: true }).click()
     await expect(p.locator('canvas.kstage')).toBeVisible({ timeout: 10_000 })
     await expect(p.locator('.rboss')).toContainText('GATLING-9')
     await expect(p.locator('.rhearts i.on')).toHaveCount(5)
@@ -529,4 +529,11 @@ test.describe('CERT RAID', () => {
     await h.getByRole('button', { name: 'Siguiente →' }).click()
     await expect(g.getByText(/Te toca disparar/)).toBeVisible({ timeout: 10_000 })
   })
+})
+
+test('home promos start the arcade games directly', async ({ context }) => {
+  const p = await open(context)
+  await profile(p, 'David')
+  await p.getByRole('button', { name: '🎯 Raid en solitario' }).click()
+  await expect(p.locator('.rboss')).toContainText('GATLING-9', { timeout: 10_000 })
 })

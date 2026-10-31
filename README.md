@@ -25,7 +25,7 @@
 - **Preguntas en español:** los packs incluidos vienen traducidos, con comandos, parámetros y nombres de herramientas en su inglés original. Cualquier pack tuyo en inglés se traduce con un botón (Gemini) y puedes elegir el idioma de las preguntas en la sala.
 - **Modo solo** para practicar sin conexión con nadie.
 
-Incluye tres packs de ejemplo sobre las certificaciones de Claude (preguntas originales; proyecto no afiliado a Anthropic).
+Incluye packs de ejemplo de las certificaciones de Claude (preguntas originales; proyecto no afiliado a Anthropic) y de Microsoft MD-102 (práctica no oficial).
 
 ## Cómo funciona (y por qué no se satura)
 

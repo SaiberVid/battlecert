@@ -369,3 +369,23 @@ pre.prompt { max-height: 260px; overflow: auto; font: 12.5px/1.5 var(--mono); ba
 .rresc { color: #ffd23d; font-size: 11px; }
 .raidline { display: grid; gap: 6px; }
 .raidline .pick { display: flex; gap: 8px; align-items: baseline; }
+
+/* home: the two arcade games side by side, compact */
+.promos { display: grid; gap: 14px; grid-template-columns: 1fr; }
+@media (min-width: 820px) { .promos { grid-template-columns: 1fr 1fr; } }
+.promos .khero-art { aspect-ratio: 1200 / 460; height: auto; max-height: 150px; }
+.promos .khero-body { margin-top: -46px; padding: 0 14px 14px; gap: 8px; background: linear-gradient(transparent, #0d1020 46px); }
+.promos .klogo { font-size: clamp(16px, 2.2vw, 22px); }
+.promos .khero-body p { font-size: 13.5px; }
+.promos .kbtn { font-size: 10px; padding: 11px 12px; }
+.promos .khero-me { margin-left: 0; padding: 2px 8px 2px 2px; }
+.promos .khero-me b { font-size: 13px; }
+.promos .khero-me small { display: none; }
+@media (max-width: 560px) {
+  .promos { gap: 10px; }
+  .promos .khero-art { max-height: 105px; }
+  .promos .khero-body { margin-top: -38px; padding: 0 10px 10px; }
+  .promos .khero-body p { display: none; }
+  .promos .kbtn { font-size: 9px; padding: 10px 8px; white-space: nowrap; }
+  .promos .khero-me b { display: none; }
+}
